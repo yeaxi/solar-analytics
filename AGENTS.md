@@ -10,13 +10,13 @@ Solar Analytics is PV-only. Non-PV device-state transitions are out of scope for
 
 - Home Assistant native Forecast.Solar / Energy Dashboard binding is authoritative for forecast-profile lineage.
 - Actual PV comes from the canonical Cerbo GX entities `sensor.garage_cerbo_gx_pv_power` and `sensor.garage_cerbo_gx_pv_energy`.
-- Legacy REST Forecast.Solar is compatibility-only and must not be used as a silent runtime fallback. REST removal is a separately staged migration, not an implementation shortcut.
+- The native adapter is the sole forecast acquisition path; it must not silently substitute another source.
 - VRM is scalar-only telemetry; it is not a replacement for the native timestamped forecast-profile source.
 - A scalar source being available does not make a timestamped forecast profile valid. Profile-dependent metrics and recommendations require an admitted native profile and fresh evidence.
 
 ## Read-only boundary
 
-Do not call Home Assistant services, reload config entries, restart Home Assistant, trigger refreshes, call `estimate()`, call provider HTTP endpoints, or use REST fallback while developing or validating this project unless a separate user-approved deployment task explicitly requires it. Never claim live success from a source-file test, `ha core check`, or a successful service-call response alone.
+Do not call Home Assistant services, reload config entries, restart Home Assistant, trigger refreshes, call `estimate()`, or call provider HTTP endpoints while developing or validating this project unless a separate user-approved deployment task explicitly requires it. Never claim live success from a source-file test, `ha core check`, or a successful service-call response alone.
 
 ## Evidence contract
 

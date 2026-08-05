@@ -20,7 +20,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate metadata and remove the retired REST entity reference."""
+    """Migrate entry metadata to the supported native contract."""
     version, data = migrate_entry_data(entry.version, dict(entry.data))
     if version != entry.version or data != dict(entry.data):
         hass.config_entries.async_update_entry(entry, data=data, version=version)

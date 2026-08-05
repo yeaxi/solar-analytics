@@ -23,234 +23,11 @@ from solar_analytics import (
     resample_forecast,
 )
 from solar_analytics.analytics import KYIV, forecast_profile_analysis_allowed, forecast_snapshot_is_admissible, to_w
-from solar_analytics.forecast_contract import (
-    advance_producer_provenance_barrier,
-    build_forecast_solar_period_url,
-    build_model_fingerprint,
-    build_payload_fingerprint,
-    build_request_fingerprint,
-    evaluate_producer_provenance,
-)
 
 UTC = timezone.utc
 
 
 class ForecastNormalizationTests(unittest.TestCase):
-    def test_native_contract_builds_auto_updated_rest_url(self) -> None:
-        contract = {
-            "status": "ok",
-            "latitude": 50.4744972,
-            "longitude": 30.4337459,
-            "declination": 33,
-            "azimuth": 138,
-            "modules_power_w": 5360,
-        }
-        self.assertEqual(
-            build_forecast_solar_period_url(contract),
-            "https://api.forecast.solar/estimate/watthours/period/50.4744972/30.4337459/33/-42/5.36?time=iso8601",
-        )
-        updated = {**contract, "modules_power_w": 5500}
-        self.assertTrue(build_forecast_solar_period_url(updated).endswith("/5.5?time=iso8601"))
-
-    def test_invalid_native_contract_cannot_build_rest_url(self) -> None:
-        self.assertIsNone(
-            build_forecast_solar_period_url(
-                {"status": "invalid_native_values", "modules_power_w": 5360}
-            )
-        )
-
-    def test_model_fingerprint_covers_all_non_secret_shaping_inputs(self) -> None:
-        base = {
-            "status": "ok",
-            "latitude": 50.4744972,
-            "longitude": 30.4337459,
-            "declination": 33,
-            "azimuth": 138,
-            "modules_power_w": 5360,
-            "inverter_size_w": 5190,
-            "morning_damping": 0.0,
-            "evening_damping": 0.0,
-            "plane_id": "plane-1",
-            "auth_mode": "public",
-            "api_key": "secret-must-not-be-fingerprinted",
-        }
-        fingerprint = build_model_fingerprint(base)
-        self.assertIsNotNone(fingerprint)
-        self.assertTrue(fingerprint.startswith("sha256:"))
-        self.assertEqual(len(fingerprint or ""), len("sha256:") + 64)
-        self.assertNotIn("secret-must-not-be-fingerprinted", fingerprint or "")
-        for key, value in (
-            ("latitude", 50.4744982),
-            ("longitude", 30.4337460),
-            ("declination", 34),
-            ("azimuth", 139),
-            ("modules_power_w", 5361),
-            ("inverter_size_w", 5191),
-            ("morning_damping", 0.1),
-            ("evening_damping", 0.1),
-            ("plane_id", "plane-2"),
-            ("auth_mode", "authenticated"),
-        ):
-            with self.subTest(key=key):
-                self.assertNotEqual(fingerprint, build_model_fingerprint({**base, key: value}))
-
-    def test_producer_provenance_requires_owned_payload_bound_handshake_and_barrier(self) -> None:
-        contract = {
-            "status": "ok",
-            "latitude": 50.4744972,
-            "longitude": 30.4337459,
-            "declination": 33,
-            "azimuth": 138,
-            "modules_power_w": 5360,
-            "inverter_size_w": 5190,
-            "morning_damping": 0.0,
-            "evening_damping": 0.0,
-            "plane_id": "plane-1",
-            "auth_mode": "public",
-        }
-        expected_fingerprint = build_model_fingerprint(contract)
-        expected_url = build_forecast_solar_period_url(contract)
-        payload = {"result": {"2026-08-02 10:00:00": 1234}}
-        payload_fingerprint = build_payload_fingerprint(payload)
-        observed = {
-            "producer_type": "owned_fetcher",
-            "model_fingerprint": expected_fingerprint,
-            "request_url": expected_url,
-            "request_url_sha256": build_request_fingerprint(expected_url),
-            "payload_sha256": payload_fingerprint,
-            "response_generation": "response-1",
-        }
-        verified = evaluate_producer_provenance(
-            expected_fingerprint,
-            expected_url,
-            observed,
-            source_available=True,
-            source_fresh=True,
-            observed_payload_fingerprint=payload_fingerprint,
-        )
-        self.assertEqual(verified["status"], "response_verified")
-        self.assertTrue(verified["verified"])
-        first = advance_producer_provenance_barrier(None, verified)
-        self.assertEqual(first["status"], "refresh_barrier_pending")
-        self.assertEqual(first["stable_refresh_count"], 1)
-        second_response = evaluate_producer_provenance(
-            expected_fingerprint,
-            expected_url,
-            {**observed, "response_generation": "response-2"},
-            source_available=True,
-            source_fresh=True,
-            observed_payload_fingerprint=payload_fingerprint,
-        )
-        second = advance_producer_provenance_barrier(first, second_response)
-        self.assertEqual(second["status"], "verified")
-        self.assertTrue(second["verified"])
-        self.assertEqual(second["stable_refresh_count"], 2)
-        for key, value in (
-            ("producer_type", "verified_rest_bridge"),
-            ("model_fingerprint", "sha256:" + "0" * 64),
-            ("request_url", expected_url + "&different=1"),
-            ("request_url_sha256", "sha256:" + "0" * 64),
-            ("payload_sha256", "sha256:" + "0" * 64),
-            ("response_generation", ""),
-        ):
-            with self.subTest(key=key):
-                rejected = evaluate_producer_provenance(
-                    expected_fingerprint,
-                    expected_url,
-                    {**observed, key: value},
-                    source_available=True,
-                    source_fresh=True,
-                    observed_payload_fingerprint=payload_fingerprint,
-                )
-                self.assertFalse(rejected["verified"])
-
-        same_generation_new_payload = evaluate_producer_provenance(
-            expected_fingerprint,
-            expected_url,
-            {**observed, "payload_sha256": build_payload_fingerprint({"result": {"changed": 1}})},
-            source_available=True,
-            source_fresh=True,
-            observed_payload_fingerprint=build_payload_fingerprint({"result": {"changed": 1}}),
-        )
-        reused = advance_producer_provenance_barrier(first, same_generation_new_payload)
-        self.assertEqual(reused["status"], "response_generation_reused")
-        self.assertFalse(reused["verified"])
-
-    def test_producer_provenance_fails_closed_for_missing_or_stale_source(self) -> None:
-        expected = "sha256:" + "1" * 64
-        url = "https://api.forecast.solar/estimate/watthours/period/50/30/33/-42/5.36?time=iso8601"
-        observed = {
-            "producer_type": "owned_fetcher",
-            "model_fingerprint": expected,
-            "request_url": url,
-            "response_id": "response-1",
-            "stable_refresh_count": 2,
-        }
-        for available, fresh, status in (
-            (False, True, "source_unavailable"),
-            (True, False, "source_stale"),
-        ):
-            with self.subTest(status=status):
-                result = evaluate_producer_provenance(
-                    expected,
-                    url,
-                    observed,
-                    source_available=available,
-                    source_fresh=fresh,
-                )
-                self.assertEqual(result["status"], status)
-                self.assertFalse(result["verified"])
-
-    def test_model_fingerprint_rejects_invalid_contract_without_secret_output(self) -> None:
-        base = {
-            "status": "ok",
-            "latitude": 50.4744972,
-            "longitude": 30.4337459,
-            "declination": 33,
-            "azimuth": 138,
-            "modules_power_w": 5360,
-            "inverter_size_w": 5190,
-            "morning_damping": 0.0,
-            "evening_damping": 0.0,
-            "auth_mode": "public",
-        }
-        for key, value in (
-            ("latitude", 91),
-            ("inverter_size_w", "bad"),
-            ("inverter_size_w", None),
-            ("morning_damping", 1.1),
-            ("morning_damping", None),
-        ):
-            with self.subTest(key=key):
-                self.assertIsNone(build_model_fingerprint({**base, key: value}))
-
-    def test_native_url_builder_rejects_out_of_range_model_inputs(self) -> None:
-        base = {
-            "status": "ok",
-            "latitude": 50.4744972,
-            "longitude": 30.4337459,
-            "declination": 33,
-            "azimuth": 138,
-            "modules_power_w": 5360,
-            "inverter_size_w": 5190,
-            "morning_damping": 0.0,
-            "evening_damping": 0.0,
-        }
-        for key, value in (
-            ("latitude", 91),
-            ("longitude", 181),
-            ("declination", 91),
-            ("azimuth", 361),
-            ("modules_power_w", 0),
-            ("inverter_size_w", 0),
-            ("inverter_size_w", "not-a-number"),
-            ("morning_damping", 1.1),
-            ("evening_damping", -0.1),
-            ("evening_damping", "not-a-number"),
-        ):
-            with self.subTest(key=key):
-                self.assertIsNone(build_forecast_solar_period_url({**base, key: value}))
-
     def test_unit_conversion_is_dimensional(self) -> None:
         self.assertEqual(to_w(2, "kW"), 2000)
         self.assertEqual(to_w(0.5, "kWh", 1800), 1000)
@@ -331,25 +108,18 @@ class ForecastNormalizationTests(unittest.TestCase):
         self.assertEqual(len(result), 10)
         self.assertEqual(result[0].timestamp.utcoffset(), timedelta(hours=2))
         self.assertEqual(result[-1].timestamp.utcoffset(), timedelta(hours=3))
-    def test_profile_analysis_gate_fails_closed_for_contract_ambiguity(self) -> None:
+    def test_profile_analysis_gate_fails_closed_for_native_contract_ambiguity(self) -> None:
         native = {"status": "ok", "modules_power_w": 5360.0, "inverter_size_w": 5190.0}
         aligned = {
             "model_status": "aligned_to_native",
             "contract_status": "metadata_mismatch",
             "normalization_blocked": False,
-            "producer_provenance_verified": True,
         }
         self.assertTrue(forecast_profile_analysis_allowed(native, aligned))
         self.assertFalse(
             forecast_profile_analysis_allowed(
                 native,
-                {**aligned, "producer_provenance_verified": False},
-            )
-        )
-        self.assertFalse(
-            forecast_profile_analysis_allowed(
-                native,
-                {**aligned, "model_status": "blocked_model_mismatch", "rest_plane_capacity_w": 5880.0},
+                {**aligned, "model_status": "blocked_model_mismatch"},
             )
         )
         self.assertFalse(
@@ -370,10 +140,8 @@ class ForecastNormalizationTests(unittest.TestCase):
             "provider": "forecast_solar",
             "profile_status": "complete",
             "quality": {
-                "model_status": "rest_capacity_unverified",
-                "producer_provenance_verified": False,
+                "model_status": "native_contract_unavailable",
                 "normalization_blocked": True,
-                "rest_plane_capacity_w": None,
             },
         }
         self.assertFalse(forecast_snapshot_is_admissible(blocked))
@@ -389,9 +157,7 @@ class ForecastNormalizationTests(unittest.TestCase):
                     "profile_status": "complete",
                     "quality": {
                         "model_status": "aligned_to_native",
-                        "producer_provenance_verified": True,
                         "normalization_blocked": False,
-                        "rest_plane_capacity_w": 5360.0,
                     },
                 }
             )

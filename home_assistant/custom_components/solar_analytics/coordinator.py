@@ -561,7 +561,6 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "actual_power": POWER_ENTITY,
                 "actual_energy": ENERGY_ENTITY,
                 "vrm": "scalar_context_only",
-                "rest": "prohibited",
             },
             "last_updated": now_utc.isoformat(),
             "reconciliation_status": reconciliation_status,

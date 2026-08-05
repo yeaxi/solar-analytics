@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Solar Analytics",
-        "description": "Інтеграція автоматично прив’язується до єдиного native Forecast.Solar config entry, вибраного Energy Dashboard, і двох canonical actual sensors: sensor.garage_cerbo_gx_pv_power та sensor.garage_cerbo_gx_pv_energy. Власні REST/provider requests, дубльовані entity-поля, notifications і фізичне керування не використовуються. Невирішений native contract або stale telemetry блокує висновок.",
+        "description": "Інтеграція автоматично прив’язується до єдиного native Forecast.Solar config entry, вибраного Energy Dashboard, і двох canonical actual sensors: sensor.garage_cerbo_gx_pv_power та sensor.garage_cerbo_gx_pv_energy. Зовнішні provider requests, дубльовані entity-поля, notifications і фізичне керування не використовуються. Невирішений native contract або stale telemetry блокує висновок.",
         "data": {}
       },
       "init": {

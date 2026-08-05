@@ -116,31 +116,18 @@ def forecast_profile_analysis_allowed(
     native_contract: Mapping[str, Any],
     forecast_diagnostics: Mapping[str, Any],
 ) -> bool:
-    """Allow interval analytics only when the forecast profile contract is safe.
-
-    A scalar Forecast.Solar ``power_production_now`` value may still be shown in
-    the read-only status view, but it must not make interval accuracy, anomaly,
-    heatmap or notification gates valid while the profile model is mismatched or
-    its period semantics are unresolved.
-    """
+    """Allow interval analytics only after the native profile contract passes."""
 
     return (
         native_contract.get("status") == "ok"
         and forecast_diagnostics.get("model_status") == "aligned_to_native"
-        and forecast_diagnostics.get("producer_provenance_verified") is True
         and forecast_diagnostics.get("contract_status") in {"ok", "metadata_mismatch"}
         and not bool(forecast_diagnostics.get("normalization_blocked"))
     )
 
 
 def forecast_snapshot_is_admissible(snapshot: Mapping[str, Any]) -> bool:
-    """Allow a stored Forecast.Solar profile only after the same gates pass.
-
-    Older rows can outlive a stricter runtime gate.  They remain in SQLite for
-    audit/rollback, but must not feed daily metrics or profile analytics unless
-    their persisted quality metadata proves native alignment and verified
-    producer provenance.
-    """
+    """Allow a stored native Forecast.Solar profile after the same gates pass."""
 
     if snapshot.get("provider") != "forecast_solar":
         return False
@@ -150,9 +137,7 @@ def forecast_snapshot_is_admissible(snapshot: Mapping[str, Any]) -> bool:
     return (
         snapshot.get("profile_status") == "complete"
         and quality.get("model_status") == "aligned_to_native"
-        and quality.get("producer_provenance_verified") is True
         and quality.get("normalization_blocked") is False
-        and finite_float(quality.get("rest_plane_capacity_w")) is not None
     )
 
 

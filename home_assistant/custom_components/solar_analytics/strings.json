@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Solar Analytics",
-        "description": "Автоматично використовує єдиний Forecast.Solar config entry, вибраний Energy Dashboard, і canonical actual sensors garage_cerbo_gx_pv_power / garage_cerbo_gx_pv_energy. Власних REST/provider requests, дубльованих entity-полів і фізичного керування немає. Якщо native contract, binding або telemetry не можна довести, аналітика fail-closed.",
+        "description": "Автоматично використовує єдиний Forecast.Solar config entry, вибраний Energy Dashboard, і canonical actual sensors garage_cerbo_gx_pv_power / garage_cerbo_gx_pv_energy. Зовнішні provider requests, дубльовані entity-поля і фізичне керування відсутні. Якщо native contract, binding або telemetry не можна довести, аналітика fail-closed.",
         "data": {}
       },
       "init": {
