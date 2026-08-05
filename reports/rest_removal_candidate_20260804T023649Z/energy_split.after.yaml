@@ -1,0 +1,1307 @@
+# Canonical energy accounting for Victron/Cerbo GX and two downstream homes.
+# PV source of truth: Cerbo GX aggregate PV power/energy.
+# Home meters together cover the complete Victron AC Out.
+#
+# Accounting policy (explicit): PV serves accounting loads first, then the active
+# AC source (grid or generator), then battery discharge. Shelter is physically
+# downstream of the parents feeder but is financially owned by the small home.
+# The garage accumulator is retained in the parents accounting stream exactly once.
+# Existing cumulative legacy sensors are not reset; new accounting cost/energy
+# sensors below are the post-fix epoch used by the active dashboard.
+
+input_number:
+  energy_grid_day_tariff:
+    name: Energy grid day tariff
+    min: 0
+    max: 100
+    step: 0.01
+    unit_of_measurement: UAH/kWh
+    mode: box
+    icon: mdi:cash-clock
+    initial: 4.32
+  energy_grid_night_tariff:
+    name: Energy grid night tariff
+    min: 0
+    max: 100
+    step: 0.01
+    unit_of_measurement: UAH/kWh
+    mode: box
+    icon: mdi:cash-clock
+    initial: 2.16
+  energy_battery_ledger_last_charge:
+    name: Battery ledger last charge reading
+    min: 0
+    max: 1000000
+    step: 0.001
+    unit_of_measurement: kWh
+    mode: box
+    initial: 65.462
+  energy_battery_ledger_last_discharge:
+    name: Battery ledger last discharge reading
+    min: 0
+    max: 1000000
+    step: 0.001
+    unit_of_measurement: kWh
+    mode: box
+    initial: 65.775
+  energy_battery_ledger_stock_kwh:
+    name: Battery ledger priced stock
+    min: 0
+    max: 100000
+    step: 0.001
+    unit_of_measurement: kWh
+    mode: box
+    initial: 0
+  energy_battery_ledger_stock_cost:
+    name: Battery ledger priced stock cost
+    min: 0
+    max: 1000000
+    step: 0.01
+    unit_of_measurement: UAH
+    mode: box
+    initial: 0
+  energy_battery_ledger_charge_efficiency:
+    name: Battery ledger charge efficiency
+    min: 50
+    max: 100
+    step: 1
+    unit_of_measurement: '%'
+    mode: box
+    initial: 90
+  energy_battery_ledger_discharge_efficiency:
+    name: Battery ledger discharge efficiency
+    min: 50
+    max: 100
+    step: 1
+    unit_of_measurement: '%'
+    mode: box
+    initial: 90
+
+template:
+  - binary_sensor:
+      - name: Energy generator running
+        unique_id: energy_generator_running
+        device_class: running
+        state: >-
+          {{ states('sensor.generator_id_1_state') | lower in ['running', 'on', 'yes']
+             or states('sensor.cerbo_gx_ac_active_input_source') | lower in ['generator', 'genset'] }}
+      - name: Energy Victron Data Fresh
+        unique_id: energy_victron_data_fresh
+        device_class: connectivity
+        state: >-
+          {% set now_ts = as_timestamp(now()) %}
+          {% set heartbeat_ts = as_timestamp(states('sensor.victron_multiplus_ii_6k5_last_ingest'), 0) %}
+          {% set heartbeat_age = now_ts - heartbeat_ts if heartbeat_ts else 999999 %}
+          {% set pv_state = states('sensor.garage_cerbo_gx_pv_power') %}
+          {% set battery_state = states('sensor.cerbo_gx_dc_battery_power') %}
+          {% set ac_input_state = states('sensor.multiplus_ii_48_6k5_100_50_id_276_input_power_l1') %}
+          {% set pv_age = now_ts - as_timestamp(states['sensor.garage_cerbo_gx_pv_power'].last_updated, 0) %}
+          {% set battery_age = now_ts - as_timestamp(states['sensor.cerbo_gx_dc_battery_power'].last_updated, 0) %}
+          {% set ac_input_age = now_ts - as_timestamp(states['sensor.multiplus_ii_48_6k5_100_50_id_276_input_power_l1'].last_updated, 0) %}
+          {% set pv_ok = pv_state not in ['unknown','unavailable','none']
+             and (pv_age <= 180 or (is_state('sun.sun','below_horizon')
+             and pv_state|float(0) == 0 and heartbeat_age <= 900)) %}
+          {{ heartbeat_age <= 900
+             and pv_ok
+             and battery_state not in ['unknown','unavailable','none'] and battery_age <= 180
+             and ac_input_state not in ['unknown','unavailable','none'] and ac_input_age <= 180 }}
+        attributes:
+          transport_heartbeat_source: sensor.victron_multiplus_ii_6k5_last_ingest
+          pv_source: sensor.garage_cerbo_gx_pv_power
+          battery_source: sensor.cerbo_gx_dc_battery_power
+          ac_input_source: sensor.multiplus_ii_48_6k5_100_50_id_276_input_power_l1
+          scope: PV, battery and raw inverter telemetry; independent of household feeder freshness
+      - name: Energy data fresh
+        unique_id: energy_data_fresh
+        device_class: connectivity
+        state: >-
+          {% set now_ts = as_timestamp(now()) %}
+          {% set heartbeat_ts = as_timestamp(states('sensor.victron_multiplus_ii_6k5_last_ingest'), 0) %}
+          {% set heartbeat_age = now_ts - heartbeat_ts if heartbeat_ts else 999999 %}
+          {% set pv_state = states('sensor.garage_cerbo_gx_pv_power') %}
+          {% set battery_state = states('sensor.cerbo_gx_dc_battery_power') %}
+          {% set small_state = states('sensor.home_electricity_meter_power') %}
+          {% set parents_state = states('sensor.lichilnik_budinku_power') %}
+          {% set shelter_deh_state = states('sensor.shelter_dehumidifier_power') %}
+          {% set shelter_heat_state = states('sensor.shelter_heating_plug_power') %}
+          {% set accumulator_state = states('sensor.bak_akamuliator_3_kvt_power') %}
+          {% set ac_input_state = states('sensor.multiplus_ii_48_6k5_100_50_id_276_input_power_l1') %}
+          {% set active_source_state = states('sensor.cerbo_gx_ac_active_input_source') | lower %}
+          {% set pv_age = now_ts - as_timestamp(states['sensor.garage_cerbo_gx_pv_power'].last_updated, 0) %}
+          {% set battery_age = now_ts - as_timestamp(states['sensor.cerbo_gx_dc_battery_power'].last_updated, 0) %}
+          {% set small_age = now_ts - as_timestamp(states['sensor.home_electricity_meter_power'].last_updated, 0) %}
+          {% set parents_age = now_ts - as_timestamp(states['sensor.lichilnik_budinku_power'].last_updated, 0) %}
+          {% set shelter_deh_age = now_ts - as_timestamp(states['sensor.shelter_dehumidifier_power'].last_updated, 0) %}
+          {% set shelter_heat_age = now_ts - as_timestamp(states['sensor.shelter_heating_plug_power'].last_updated, 0) %}
+          {% set accumulator_age = now_ts - as_timestamp(states['sensor.bak_akamuliator_3_kvt_power'].last_updated, 0) %}
+          {% set ac_input_age = now_ts - as_timestamp(states['sensor.multiplus_ii_48_6k5_100_50_id_276_input_power_l1'].last_updated, 0) %}
+          {% set active_source_age = now_ts - as_timestamp(states['sensor.cerbo_gx_ac_active_input_source'].last_updated, 0) %}
+          {% set pv_ok = pv_state not in ['unknown','unavailable','none']
+             and (pv_age <= 180 or (is_state('sun.sun','below_horizon')
+             and pv_state|float(0) == 0 and heartbeat_age <= 900)) %}
+          {% set heating_ok = shelter_heat_state not in ['unknown','unavailable','none']
+             and (shelter_heat_age <= 600 or (is_state('switch.shelter_heating_plug','off')
+             and shelter_heat_state|float(0) == 0)) %}
+          {% set accumulator_ok = accumulator_state not in ['unknown','unavailable','none']
+             and (accumulator_age <= 600 or (is_state('switch.bak_akamuliator_3_kvt_switch','off')
+             and accumulator_state|float(0) == 0)) %}
+          {{ heartbeat_age <= 900
+             and pv_ok
+             and battery_state not in ['unknown','unavailable','none'] and battery_age <= 180
+             and small_state not in ['unknown','unavailable','none'] and small_age <= 1800
+             and parents_state not in ['unknown','unavailable','none'] and parents_age <= 1800
+             and shelter_deh_state not in ['unknown','unavailable','none'] and shelter_deh_age <= 600
+             and ac_input_state not in ['unknown','unavailable','none'] and ac_input_age <= 180
+             and active_source_state in ['grid','generator']
+             and heating_ok and accumulator_ok }}
+        attributes:
+          transport_heartbeat_source: sensor.victron_multiplus_ii_6k5_last_ingest
+          transport_heartbeat_max_age_seconds: 900
+          pv_battery_max_age_seconds: 180
+          home_meter_max_age_seconds: 1800
+          shelter_meter_max_age_seconds: 600
+          pv_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.garage_cerbo_gx_pv_power'].last_updated, 0)) | round(0) }}"
+          battery_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.cerbo_gx_dc_battery_power'].last_updated, 0)) | round(0) }}"
+          small_home_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.home_electricity_meter_power'].last_updated, 0)) | round(0) }}"
+          parents_home_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.lichilnik_budinku_power'].last_updated, 0)) | round(0) }}"
+          shelter_dehumidifier_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.shelter_dehumidifier_power'].last_updated, 0)) | round(0) }}"
+          shelter_heating_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.shelter_heating_plug_power'].last_updated, 0)) | round(0) }}"
+          accumulator_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.bak_akamuliator_3_kvt_power'].last_updated, 0)) | round(0) }}"
+          ac_input_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.multiplus_ii_48_6k5_100_50_id_276_input_power_l1'].last_updated, 0)) | round(0) }}"
+          active_source_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.energy_active_source'].last_updated, 0)) | round(0) }}"
+          pv_source: sensor.garage_cerbo_gx_pv_power
+          battery_source: sensor.cerbo_gx_dc_battery_power
+          small_home_source: sensor.home_electricity_meter_power
+          parents_home_source: sensor.lichilnik_budinku_power
+          shelter_accounting_sources: sensor.shelter_dehumidifier_power, sensor.shelter_heating_plug_power
+          accumulator_source: sensor.bak_akamuliator_3_kvt_power
+          nighttime_zero_policy: PV zero is accepted only below horizon with a fresh Victron ingest heartbeat
+      - name: Energy PV task data fresh
+        unique_id: energy_pv_task_data_fresh
+        device_class: connectivity
+        state: >-
+          {% set pv = states('sensor.garage_cerbo_gx_pv_power') %}
+          {% set battery = states('sensor.cerbo_gx_dc_battery_power') %}
+          {% set small = states('sensor.home_electricity_meter_power') %}
+          {% set parents = states('sensor.lichilnik_budinku_power') %}
+          {% set forecast = states('sensor.energy_next_hour') %}
+          {% set pv_age = as_timestamp(now()) - as_timestamp(states['sensor.garage_cerbo_gx_pv_power'].last_updated, 0) %}
+          {% set battery_age = as_timestamp(now()) - as_timestamp(states['sensor.cerbo_gx_dc_battery_power'].last_updated, 0) %}
+          {% set small_age = as_timestamp(now()) - as_timestamp(states['sensor.home_electricity_meter_power'].last_updated, 0) %}
+          {% set parents_age = as_timestamp(now()) - as_timestamp(states['sensor.lichilnik_budinku_power'].last_updated, 0) %}
+          {% set forecast_age = as_timestamp(now()) - as_timestamp(states['sensor.energy_next_hour'].last_updated, 0) %}
+          {% if pv not in ['unknown','unavailable','none']
+             and battery not in ['unknown','unavailable','none']
+             and small not in ['unknown','unavailable','none']
+             and parents not in ['unknown','unavailable','none']
+             and forecast not in ['unknown','unavailable','none']
+             and pv_age <= 180 and battery_age <= 180
+             and small_age <= 600 and parents_age <= 600
+             and forecast_age <= 7200 %}on{% else %}off{% endif %}
+        attributes:
+          pv_max_age_seconds: 180
+          battery_max_age_seconds: 180
+          home_meter_max_age_seconds: 600
+          forecast_max_age_seconds: 7200
+          pv_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.garage_cerbo_gx_pv_power'].last_updated, 0)) | round(0) }}"
+          battery_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.cerbo_gx_dc_battery_power'].last_updated, 0)) | round(0) }}"
+          small_home_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.home_electricity_meter_power'].last_updated, 0)) | round(0) }}"
+          parents_home_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.lichilnik_budinku_power'].last_updated, 0)) | round(0) }}"
+          forecast_age_seconds: "{{ (as_timestamp(now()) - as_timestamp(states['sensor.energy_next_hour'].last_updated, 0)) | round(0) }}"
+          pv_source: sensor.garage_cerbo_gx_pv_power
+          forecast_source: sensor.energy_next_hour
+          note: A fresh transport/ingest signal does not by itself prove that this PV value is fresh.
+      - name: Energy PV dispatch gate
+        unique_id: energy_pv_dispatch_gate
+        state: >-
+          {% if states('sensor.garage_cerbo_gx_pv_power')|float(0) >= 1200 %}on{% else %}off{% endif %}
+        attributes:
+          threshold_w: 1200
+          source: sensor.garage_cerbo_gx_pv_power
+      - name: Energy PV strong dispatch gate
+        unique_id: energy_pv_strong_dispatch_gate
+        state: >-
+          {% if states('sensor.garage_cerbo_gx_pv_power')|float(0) >= 2200 %}on{% else %}off{% endif %}
+        attributes:
+          threshold_w: 2200
+          source: sensor.garage_cerbo_gx_pv_power
+
+  - sensor:
+      - name: Energy active source
+        unique_id: energy_active_source
+        state: >-
+          {% set s = states('sensor.cerbo_gx_ac_active_input_source') | lower %}
+          {% if s in ['generator', 'genset', 'gen'] or is_state('binary_sensor.energy_generator_running','on') %}generator
+          {% elif s in ['grid', 'utility', 'ac_in_1'] %}grid
+          {% else %}unknown{% endif %}
+      - name: Energy Small Home Accounting Power
+        unique_id: energy_small_home_accounting_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ [
+              states('sensor.home_electricity_meter_power')|float(0)
+              + states('sensor.shelter_dehumidifier_power')|float(0)
+              + states('sensor.shelter_heating_plug_power')|float(0),
+              0
+            ] | max | round(1) }}
+        attributes:
+          accounting_owner: small_home
+          physical_shelter_feeder: parents_home
+          shelter_financial_policy: shelter consumption is charged to small home
+          formula: direct small-home meter + shelter dehumidifier + shelter heating
+          sources: sensor.home_electricity_meter_power, sensor.shelter_dehumidifier_power, sensor.shelter_heating_plug_power
+      - name: Energy Parents Home Accounting Power
+        unique_id: energy_parents_home_accounting_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set raw = states('sensor.lichilnik_budinku_power')|float(0) %}
+          {% set shelter = states('sensor.shelter_dehumidifier_power')|float(0)
+             + states('sensor.shelter_heating_plug_power')|float(0) %}
+          {% set accumulator = states('sensor.bak_akamuliator_3_kvt_power')|float(0) %}
+          {{ [raw - shelter + accumulator, 0] | max | round(1) }}
+        attributes:
+          accounting_owner: parents_home
+          physical_shelter_feeder: parents_home
+          shelter_financial_policy: shelter is excluded here because it is charged to small home
+          accumulator_financial_policy: preserve existing parents accounting ownership exactly once
+          formula: parents feeder meter - shelter loads + garage accumulator
+          sources: sensor.lichilnik_budinku_power, sensor.shelter_dehumidifier_power, sensor.shelter_heating_plug_power, sensor.bak_akamuliator_3_kvt_power
+      - name: Energy total homes power
+        unique_id: energy_total_homes_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_small_home_accounting_power')|float(0)
+              + states('sensor.energy_parents_home_accounting_power')|float(0)) | round(1) }}
+        attributes:
+          accounting_scope: small_home_plus_parents_home
+          shelter_owner: small_home
+          accumulator_owner: parents_home
+          accounting_epoch: post-source-allocation-fix
+      - name: Energy small home accounting share
+        unique_id: energy_small_home_accounting_share
+        unit_of_measurement: '%'
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set small = states('sensor.energy_small_home_accounting_power')|float(0) %}
+          {% set parents = states('sensor.energy_parents_home_accounting_power')|float(0) %}
+          {{ (small / (small + parents) * 100) if small + parents > 0 else 0 }}
+        attributes:
+          numerator: sensor.energy_small_home_accounting_power
+          denominator: sensor.energy_total_homes_power
+          allocation_policy: proportional by accounting load
+      - name: Energy parents home accounting share
+        unique_id: energy_parents_home_accounting_share
+        unit_of_measurement: '%'
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set small = states('sensor.energy_small_home_accounting_power')|float(0) %}
+          {% set parents = states('sensor.energy_parents_home_accounting_power')|float(0) %}
+          {{ (parents / (small + parents) * 100) if small + parents > 0 else 0 }}
+        attributes:
+          numerator: sensor.energy_parents_home_accounting_power
+          denominator: sensor.energy_total_homes_power
+          allocation_policy: proportional by accounting load
+      - name: Energy solar production power
+        unique_id: energy_solar_production_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_victron_data_fresh','on') }}"
+        state: "{{ states('sensor.garage_cerbo_gx_pv_power') | float(0) }}"
+        attributes:
+          source: sensor.garage_cerbo_gx_pv_power
+          source_type: Cerbo GX aggregate PV power
+          connected_array_capacity_w: 5880
+      - name: Forecast Solar Production Power kW
+        unique_id: forecast_solar_production_power_kw
+        unit_of_measurement: kW
+        device_class: power
+        state_class: measurement
+        state: "{{ states('sensor.power_production_now') | float(0) / 1000 }}"
+        availability: "{{ states('sensor.power_production_now') not in ['unknown','unavailable','none'] }}"
+        attributes:
+          source: sensor.power_production_now
+          source_type: Forecast.Solar estimated power production now
+      - name: Energy PV First MPPT Yield Today
+        unique_id: energy_solar_production_today
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total
+        state: "{{ states('sensor.smartsolar_mppt_ve_can_250_100_rev2_yield_today') | float(0) }}"
+        availability: "{{ states('sensor.smartsolar_mppt_ve_can_250_100_rev2_yield_today') not in ['unknown','unavailable','none'] }}"
+        attributes:
+          source: sensor.smartsolar_mppt_ve_can_250_100_rev2_yield_today
+          source_scope: single MPPT / South-East string
+          source_type: diagnostic yield_today, not aggregate PV production
+          canonical_aggregate_today: sensor.energy_pv_aggregate_today
+      - name: Energy grid input power
+        unique_id: energy_grid_input_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% if states('sensor.cerbo_gx_ac_active_input_source') | lower in ['grid', 'utility', 'ac_in_1'] %}{{ [states('sensor.multiplus_ii_48_6k5_100_50_id_276_input_power_l1')|float(0),0] | max | round(1) }}{% else %}0{% endif %}
+      - name: Energy generator input power
+        unique_id: energy_generator_input_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% if states('sensor.cerbo_gx_ac_active_input_source') | lower in ['generator', 'genset', 'gen'] %}{{ [states('sensor.multiplus_ii_48_6k5_100_50_id_276_input_power_l1')|float(0),0] | max | round(1) }}{% else %}0{% endif %}
+      - name: Energy battery charge power
+        unique_id: energy_battery_charge_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: "{{ [states('sensor.cerbo_gx_dc_battery_power')|float(0), 0] | max | round(1) }}"
+      - name: Energy battery discharge power
+        unique_id: energy_battery_discharge_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: "{{ [0 - states('sensor.cerbo_gx_dc_battery_power')|float(0), 0] | max | round(1) }}"
+        attributes:
+          source: sensor.cerbo_gx_dc_battery_power
+          flow_scope: raw battery discharge before household-load attribution
+      - name: Energy pv to loads power
+        unique_id: energy_pv_to_loads_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set pv = states('sensor.energy_solar_production_power')|float(0) %}
+          {% set loads = states('sensor.energy_total_homes_power')|float(0) %}
+          {{ [[pv, loads] | min, 0] | max | round(1) }}
+        attributes:
+          attribution_order: 1
+          policy: PV serves accounting loads first
+      - name: Energy pv to battery power
+        unique_id: energy_pv_to_battery_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set pv = states('sensor.energy_solar_production_power')|float(0) %}
+          {% set loads = states('sensor.energy_total_homes_power')|float(0) %}
+          {% set pv_loads = [[pv, loads] | min, 0] | max %}
+          {% set charge = states('sensor.energy_battery_charge_power')|float(0) %}
+          {{ [[pv - pv_loads, 0] | max, charge] | min | round(1) }}
+      - name: Energy grid to loads power
+        unique_id: energy_grid_to_loads_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set pv = states('sensor.energy_solar_production_power')|float(0) %}
+          {% set loads = states('sensor.energy_total_homes_power')|float(0) %}
+          {% set pv_loads = [[pv, loads] | min, 0] | max %}
+          {% set remaining = [loads - pv_loads, 0] | max %}
+          {% set grid = states('sensor.energy_grid_input_power')|float(0) %}
+          {{ [[grid, remaining] | min, 0] | max | round(1) }}
+        attributes:
+          attribution_order: 2
+          policy: active AC source serves residual load after PV
+      - name: Energy generator to loads power
+        unique_id: energy_generator_to_loads_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set pv = states('sensor.energy_solar_production_power')|float(0) %}
+          {% set loads = states('sensor.energy_total_homes_power')|float(0) %}
+          {% set pv_loads = [[pv, loads] | min, 0] | max %}
+          {% set remaining = [loads - pv_loads, 0] | max %}
+          {% set grid = states('sensor.energy_grid_input_power')|float(0) %}
+          {% set generator = states('sensor.energy_generator_input_power')|float(0) %}
+          {% set ac_loads = [[grid + generator, remaining] | min, 0] | max %}
+          {% set grid_loads = [[grid, ac_loads] | min, 0] | max %}
+          {{ [ac_loads - grid_loads, 0] | max | round(1) }}
+        attributes:
+          attribution_order: 2
+          policy: generator is the mutually-exclusive AC-source residual after grid attribution
+      - name: Energy battery to loads power
+        unique_id: energy_battery_to_loads_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set pv = states('sensor.energy_solar_production_power')|float(0) %}
+          {% set loads = states('sensor.energy_total_homes_power')|float(0) %}
+          {% set pv_loads = [[pv, loads] | min, 0] | max %}
+          {% set remaining = [loads - pv_loads, 0] | max %}
+          {% set grid = states('sensor.energy_grid_input_power')|float(0) %}
+          {% set generator = states('sensor.energy_generator_input_power')|float(0) %}
+          {% set ac_loads = [[grid + generator, remaining] | min, 0] | max %}
+          {% set discharge = states('sensor.energy_battery_discharge_power')|float(0) %}
+          {{ [[discharge, remaining - ac_loads] | min, 0] | max | round(1) }}
+        attributes:
+          source: sensor.energy_battery_discharge_power
+          attribution_order: 3
+          policy: battery discharge is capped by the remaining accounting load
+      - name: Energy grid to battery power
+        unique_id: energy_grid_to_battery_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set pv = states('sensor.energy_solar_production_power')|float(0) %}
+          {% set loads = states('sensor.energy_total_homes_power')|float(0) %}
+          {% set pv_loads = [[pv, loads] | min, 0] | max %}
+          {% set remaining_load = [loads - pv_loads, 0] | max %}
+          {% set grid = states('sensor.energy_grid_input_power')|float(0) %}
+          {% set grid_loads = [[grid, remaining_load] | min, 0] | max %}
+          {% set charge = states('sensor.energy_battery_charge_power')|float(0) %}
+          {% set pv_charge = [[pv - pv_loads, 0] | max, charge] | min %}
+          {{ [[[grid - grid_loads, 0] | max, charge - pv_charge] | min, 0] | max | round(1) }}
+      - name: Energy generator to battery power
+        unique_id: energy_generator_to_battery_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set pv = states('sensor.energy_solar_production_power')|float(0) %}
+          {% set loads = states('sensor.energy_total_homes_power')|float(0) %}
+          {% set pv_loads = [[pv, loads] | min, 0] | max %}
+          {% set remaining_load = [loads - pv_loads, 0] | max %}
+          {% set grid = states('sensor.energy_grid_input_power')|float(0) %}
+          {% set generator = states('sensor.energy_generator_input_power')|float(0) %}
+          {% set ac_loads = [[grid + generator, remaining_load] | min, 0] | max %}
+          {% set grid_loads = [[grid, ac_loads] | min, 0] | max %}
+          {% set generator_loads = [ac_loads - grid_loads, 0] | max %}
+          {% set charge = states('sensor.energy_battery_charge_power')|float(0) %}
+          {% set pv_charge = [[pv - pv_loads, 0] | max, charge] | min %}
+          {% set remaining_charge = [charge - pv_charge, 0] | max %}
+          {{ [[[generator - generator_loads, 0] | max, remaining_charge] | min, 0] | max | round(1) }}
+      - name: Energy allocation residual power
+        unique_id: energy_allocation_residual_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_pv_to_loads_power')|float(0)
+              + states('sensor.energy_grid_to_loads_power')|float(0)
+              + states('sensor.energy_generator_to_loads_power')|float(0)
+              + states('sensor.energy_battery_to_loads_power')|float(0)
+              - states('sensor.energy_total_homes_power')|float(0)) | round(1) }}
+        attributes:
+          invariant: allocated source-to-home power must be <= accounting load
+          expected_range: <= 0 W
+          allocation_method: PV first, grid/generator second, battery third
+          shelter_owner: small_home
+      - name: Energy unallocated load power
+        unique_id: energy_unallocated_load_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set loads = states('sensor.energy_total_homes_power')|float(0) %}
+          {% set allocated = states('sensor.energy_pv_to_loads_power')|float(0)
+             + states('sensor.energy_grid_to_loads_power')|float(0)
+             + states('sensor.energy_generator_to_loads_power')|float(0)
+             + states('sensor.energy_battery_to_loads_power')|float(0) %}
+          {{ [loads - allocated, 0] | max | round(1) }}
+        attributes:
+          meaning: accounting load not covered by the canonical source-to-load allocation
+          source_to_loads: PV, grid, generator, battery
+      - name: Energy unallocated source power
+        unique_id: energy_unallocated_source_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set source = states('sensor.energy_solar_production_power')|float(0)
+             + states('sensor.energy_grid_input_power')|float(0)
+             + states('sensor.energy_generator_input_power')|float(0)
+             + states('sensor.energy_battery_discharge_power')|float(0) %}
+          {% set destinations = states('sensor.energy_pv_to_loads_power')|float(0)
+             + states('sensor.energy_grid_to_loads_power')|float(0)
+             + states('sensor.energy_generator_to_loads_power')|float(0)
+             + states('sensor.energy_battery_to_loads_power')|float(0)
+             + states('sensor.energy_pv_to_battery_power')|float(0)
+             + states('sensor.energy_grid_to_battery_power')|float(0)
+             + states('sensor.energy_generator_to_battery_power')|float(0) %}
+          {{ [source - destinations, 0] | max | round(1) }}
+        attributes:
+          meaning: measured source power not assigned to homes or battery charge
+          note: May represent export, common loads, conversion losses, or asynchronous telemetry
+      - name: Energy balance residual power
+        unique_id: energy_balance_residual_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_grid_input_power')|float(0)
+              + states('sensor.energy_generator_input_power')|float(0)
+              + states('sensor.energy_solar_production_power')|float(0)
+              + states('sensor.energy_battery_discharge_power')|float(0)
+              - states('sensor.energy_total_homes_power')|float(0)
+              - states('sensor.energy_battery_charge_power')|float(0)) | round(1) }}
+        attributes:
+          formula: grid + generator + PV + raw battery discharge - accounting homes - battery charge
+          note: Physical residual includes conversion losses, unmeasured common loads and timestamp mismatch; it is not added to household allocations.
+      - name: Energy balance status
+        unique_id: energy_balance_status
+        icon: mdi:scale-balance
+        state: >-
+          {% set r = states('sensor.energy_balance_residual_power')|float(0) | abs %}
+          {% set a = states('sensor.energy_allocation_residual_power')|float(0) %}
+          {% if not is_state('binary_sensor.energy_data_fresh','on') %}stale_data{% elif a > 0.1 %}allocation_over_limit{% elif r <= 500 %}within_tolerance{% else %}investigate{% endif %}
+        attributes:
+          tolerance_w: 500
+          residual_sensor: sensor.energy_balance_residual_power
+          allocation_residual_sensor: sensor.energy_allocation_residual_power
+          allocation_method: PV first, grid/generator second, battery third
+          allocation_is_physical_measurement: false
+          note: Physical balance residual and accounting allocation residual are separate diagnostics.
+      - name: Energy small home solar power
+        unique_id: energy_small_home_solar_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_pv_to_loads_power')|float(0)
+              * states('sensor.energy_small_home_accounting_share')|float(0) / 100) | round(3) }}
+        attributes:
+          allocation_source: sensor.energy_pv_to_loads_power
+          accounting_owner: small_home
+      - name: Energy parents home solar power
+        unique_id: energy_parents_home_solar_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_pv_to_loads_power')|float(0)
+              * states('sensor.energy_parents_home_accounting_share')|float(0) / 100) | round(3) }}
+        attributes:
+          allocation_source: sensor.energy_pv_to_loads_power
+          accounting_owner: parents_home
+      - name: Energy small home grid power
+        unique_id: energy_small_home_grid_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_grid_to_loads_power')|float(0)
+              * states('sensor.energy_small_home_accounting_share')|float(0) / 100) | round(3) }}
+        attributes:
+          allocation_source: sensor.energy_grid_to_loads_power
+          accounting_owner: small_home
+      - name: Energy parents home grid power
+        unique_id: energy_parents_home_grid_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_grid_to_loads_power')|float(0)
+              * states('sensor.energy_parents_home_accounting_share')|float(0) / 100) | round(3) }}
+        attributes:
+          allocation_source: sensor.energy_grid_to_loads_power
+          accounting_owner: parents_home
+      - name: Energy small home generator power
+        unique_id: energy_small_home_generator_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_generator_to_loads_power')|float(0)
+              * states('sensor.energy_small_home_accounting_share')|float(0) / 100) | round(3) }}
+        attributes:
+          allocation_source: sensor.energy_generator_to_loads_power
+          accounting_owner: small_home
+      - name: Energy parents home generator power
+        unique_id: energy_parents_home_generator_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_generator_to_loads_power')|float(0)
+              * states('sensor.energy_parents_home_accounting_share')|float(0) / 100) | round(3) }}
+        attributes:
+          allocation_source: sensor.energy_generator_to_loads_power
+          accounting_owner: parents_home
+      - name: Energy small home battery power
+        unique_id: energy_small_home_battery_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_battery_to_loads_power')|float(0)
+              * states('sensor.energy_small_home_accounting_share')|float(0) / 100) | round(3) }}
+        attributes:
+          allocation_source: sensor.energy_battery_to_loads_power
+          accounting_owner: small_home
+      - name: Energy parents home battery power
+        unique_id: energy_parents_home_battery_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ (states('sensor.energy_battery_to_loads_power')|float(0)
+              * states('sensor.energy_parents_home_accounting_share')|float(0) / 100) | round(3) }}
+        attributes:
+          allocation_source: sensor.energy_battery_to_loads_power
+          accounting_owner: parents_home
+      - name: Energy Small Home Generator Accounting Energy
+        unique_id: energy_small_home_generator_accounting_energy
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        availability: >-
+          {% set raw = states('sensor.energy_small_home_generator_energy') %}
+          {{ raw not in ['unknown','unavailable','none']
+             or is_state('binary_sensor.energy_generator_running','off') }}
+        state: >-
+          {% set raw = states('sensor.energy_small_home_generator_energy') %}
+          {{ raw | float(0) if raw not in ['unknown','unavailable','none'] else 0 }}
+        attributes:
+          source: sensor.energy_small_home_generator_energy
+          fallback_policy: zero only while generator is explicitly stopped
+          accounting_owner: small_home
+      - name: Energy Parents Home Generator Accounting Energy
+        unique_id: energy_parents_home_generator_accounting_energy
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        availability: >-
+          {% set raw = states('sensor.energy_parents_home_generator_energy') %}
+          {{ raw not in ['unknown','unavailable','none']
+             or is_state('binary_sensor.energy_generator_running','off') }}
+        state: >-
+          {% set raw = states('sensor.energy_parents_home_generator_energy') %}
+          {{ raw | float(0) if raw not in ['unknown','unavailable','none'] else 0 }}
+        attributes:
+          source: sensor.energy_parents_home_generator_energy
+          fallback_policy: zero only while generator is explicitly stopped
+          accounting_owner: parents_home
+      - name: Energy battery weighted cost
+        unique_id: energy_battery_weighted_cost
+        unit_of_measurement: UAH/kWh
+        state_class: measurement
+        availability: "{{ states('input_number.energy_battery_ledger_stock_kwh')|float(0) > 0.01 }}"
+        state: >-
+          {{ (states('input_number.energy_battery_ledger_stock_cost')|float(0) / states('input_number.energy_battery_ledger_stock_kwh')|float(1)) | round(4) }}
+      - name: Energy battery ledger status
+        unique_id: energy_battery_ledger_status
+        icon: mdi:clipboard-check-outline
+        state: >-
+          {% set k = states('input_number.energy_battery_ledger_stock_kwh')|float(0) %}
+          {% set c = states('input_number.energy_battery_ledger_stock_cost')|float(0) %}
+          {% if k > 0.01 %}active{% elif c > 0.01 %}priced{% else %}empty{% endif %}
+        attributes:
+          stock_kwh: "{{ states('input_number.energy_battery_ledger_stock_kwh') }}"
+          stock_cost_uah: "{{ states('input_number.energy_battery_ledger_stock_cost') }}"
+          note: Battery stock before ledger initialization is intentionally unpriced.
+      - name: Energy battery cost rate
+        unique_id: energy_battery_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') and states('sensor.energy_battery_weighted_cost') not in ['unknown','unavailable','none'] }}"
+        state: >-
+          {{ states('sensor.energy_battery_to_loads_power')|float(0) / 1000 * states('sensor.energy_battery_weighted_cost')|float(0) }}
+      - name: Energy small home battery cost rate
+        unique_id: energy_small_home_battery_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ states('sensor.energy_battery_cost_rate')|float(0)
+             * states('sensor.energy_small_home_accounting_share')|float(0) / 100 }}
+      - name: Energy parents home battery cost rate
+        unique_id: energy_parents_home_battery_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {{ states('sensor.energy_battery_cost_rate')|float(0)
+             * states('sensor.energy_parents_home_accounting_share')|float(0) / 100 }}
+      - name: Energy small home grid cost rate
+        unique_id: energy_small_home_grid_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set tariff = states('input_number.energy_grid_day_tariff')|float(0) if states('select.energy_grid_day_night') == 'day' else states('input_number.energy_grid_night_tariff')|float(0) %}
+          {{ states('sensor.energy_small_home_grid_power')|float(0) / 1000 * tariff }}
+      - name: Energy parents home grid cost rate
+        unique_id: energy_parents_home_grid_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: >-
+          {% set tariff = states('input_number.energy_grid_day_tariff')|float(0) if states('select.energy_grid_day_night') == 'day' else states('input_number.energy_grid_night_tariff')|float(0) %}
+          {{ states('sensor.energy_parents_home_grid_power')|float(0) / 1000 * tariff }}
+      - name: Energy small home total cost rate
+        unique_id: energy_small_home_total_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: "{{ states('sensor.energy_small_home_grid_cost_rate')|float(0) + states('sensor.energy_small_home_battery_cost_rate')|float(0) }}"
+      - name: Energy parents home total cost rate
+        unique_id: energy_parents_home_total_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: "{{ states('sensor.energy_parents_home_grid_cost_rate')|float(0) + states('sensor.energy_parents_home_battery_cost_rate')|float(0) }}"
+      - name: Energy Small Home Total Cost Consistent
+        unique_id: energy_small_home_total_cost_consistent
+        unit_of_measurement: UAH
+        device_class: monetary
+        state_class: total
+        availability: >-
+          {{ states('sensor.energy_small_home_grid_accounting_cost_total') not in ['unknown','unavailable','none']
+             and states('sensor.energy_small_home_battery_accounting_cost_total') not in ['unknown','unavailable','none'] }}
+        state: >-
+          {{ (states('sensor.energy_small_home_grid_accounting_cost_total')|float(0)
+              + states('sensor.energy_small_home_battery_accounting_cost_total')|float(0)) | round(2) }}
+        attributes:
+          formula: canonical grid accounting cost + canonical battery accounting cost
+          grid_component: sensor.energy_small_home_grid_accounting_cost_total
+          battery_component: sensor.energy_small_home_battery_accounting_cost_total
+          legacy_total: sensor.energy_small_home_total_cost
+          history_policy: new post-fix accounting epoch; legacy history is preserved
+      - name: Energy Parents Home Total Cost Consistent
+        unique_id: energy_parents_home_total_cost_consistent
+        unit_of_measurement: UAH
+        device_class: monetary
+        state_class: total
+        availability: >-
+          {{ states('sensor.energy_parents_home_grid_accounting_cost_total') not in ['unknown','unavailable','none']
+             and states('sensor.energy_parents_home_battery_accounting_cost_total') not in ['unknown','unavailable','none'] }}
+        state: >-
+          {{ (states('sensor.energy_parents_home_grid_accounting_cost_total')|float(0)
+              + states('sensor.energy_parents_home_battery_accounting_cost_total')|float(0)) | round(2) }}
+        attributes:
+          formula: canonical grid accounting cost + canonical battery accounting cost
+          grid_component: sensor.energy_parents_home_grid_accounting_cost_total
+          battery_component: sensor.energy_parents_home_battery_accounting_cost_total
+          legacy_total: sensor.energy_parents_home_total_cost
+          history_policy: new post-fix accounting epoch; legacy history is preserved
+      - name: Energy grid day cost rate
+        unique_id: energy_grid_day_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: "{{ states('sensor.energy_grid_input_power')|float(0) / 1000 * states('input_number.energy_grid_day_tariff')|float(0) if states('select.energy_grid_day_night') == 'day' else 0 }}"
+      - name: Energy grid night cost rate
+        unique_id: energy_grid_night_cost_rate
+        unit_of_measurement: UAH/h
+        state_class: measurement
+        availability: "{{ is_state('binary_sensor.energy_data_fresh','on') }}"
+        state: "{{ states('sensor.energy_grid_input_power')|float(0) / 1000 * states('input_number.energy_grid_night_tariff')|float(0) if states('select.energy_grid_day_night') == 'night' else 0 }}"
+
+sensor:
+  - platform: integration
+    source: sensor.energy_grid_input_power
+    name: Energy Grid Input Energy
+    unique_id: energy_grid_input_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_generator_input_power
+    name: Energy Generator Input Energy
+    unique_id: energy_generator_input_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_solar_production_power
+    name: Energy Solar Production Energy
+    unique_id: energy_solar_production_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.forecast_solar_production_power_kw
+    name: Forecast Solar Production Energy V2
+    unique_id: forecast_solar_production_energy_v2
+    unit_time: h
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_battery_charge_power
+    name: Energy Battery Charge Energy
+    unique_id: energy_battery_charge_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_battery_to_loads_power
+    name: Energy Battery To Loads Energy
+    unique_id: energy_battery_to_loads_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_pv_to_loads_power
+    name: Energy PV To Loads Energy
+    unique_id: energy_pv_to_loads_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_pv_to_battery_power
+    name: Energy PV To Battery Energy
+    unique_id: energy_pv_to_battery_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_grid_to_battery_power
+    name: Energy Grid To Battery Energy
+    unique_id: energy_grid_to_battery_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_grid_power
+    name: Energy Small Home Grid Energy
+    unique_id: energy_small_home_grid_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_parents_home_grid_power
+    name: Energy Parents Home Grid Energy
+    unique_id: energy_parents_home_grid_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_solar_power
+    name: Energy Small Home Solar Energy
+    unique_id: energy_small_home_solar_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_parents_home_solar_power
+    name: Energy Parents Home Solar Energy
+    unique_id: energy_parents_home_solar_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_generator_power
+    name: Energy Small Home Generator Energy
+    unique_id: energy_small_home_generator_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_parents_home_generator_power
+    name: Energy Parents Home Generator Energy
+    unique_id: energy_parents_home_generator_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_battery_power
+    name: Energy Small Home Battery Energy
+    unique_id: energy_small_home_battery_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_parents_home_battery_power
+    name: Energy Parents Home Battery Energy
+    unique_id: energy_parents_home_battery_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_grid_cost_rate
+    name: Energy Small Home Grid Cost Total
+    unique_id: energy_small_home_grid_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_parents_home_grid_cost_rate
+    name: Energy Parents Home Grid Cost Total
+    unique_id: energy_parents_home_grid_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_battery_cost_rate
+    name: Energy Battery Cost Total
+    unique_id: energy_battery_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_small_home_battery_cost_rate
+    name: Energy Small Home Battery Cost Total
+    unique_id: energy_small_home_battery_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_parents_home_battery_cost_rate
+    name: Energy Parents Home Battery Cost Total
+    unique_id: energy_parents_home_battery_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_small_home_total_cost_rate
+    name: Energy Small Home Total Cost
+    unique_id: energy_small_home_total_cost
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_parents_home_total_cost_rate
+    name: Energy Parents Home Total Cost
+    unique_id: energy_parents_home_total_cost
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_grid_day_cost_rate
+    name: Energy Grid Day Cost Total
+    unique_id: energy_grid_day_cost_total
+    unit_time: h
+    round: 2
+    method: left
+  - platform: integration
+    source: sensor.energy_grid_night_cost_rate
+    name: Energy Grid Night Cost Total
+    unique_id: energy_grid_night_cost_total
+    unit_time: h
+    round: 2
+    method: left
+  # Post-fix accounting epoch. Legacy cumulative entities above remain intact;
+  # these entities start at zero after deployment and are the active dashboard sources.
+  - platform: integration
+    source: sensor.energy_battery_discharge_power
+    name: Energy Battery Discharge Energy
+    unique_id: energy_battery_discharge_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_battery_to_loads_power
+    name: Energy Battery To Loads Accounting Energy
+    unique_id: energy_battery_to_loads_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_pv_to_loads_power
+    name: Energy PV To Loads Accounting Energy
+    unique_id: energy_pv_to_loads_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_grid_to_loads_power
+    name: Energy Grid To Loads Accounting Energy
+    unique_id: energy_grid_to_loads_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_generator_to_loads_power
+    name: Energy Generator To Loads Accounting Energy
+    unique_id: energy_generator_to_loads_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_pv_to_battery_power
+    name: Energy PV To Battery Accounting Energy
+    unique_id: energy_pv_to_battery_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_grid_to_battery_power
+    name: Energy Grid To Battery Accounting Energy
+    unique_id: energy_grid_to_battery_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_generator_to_battery_power
+    name: Energy Generator To Battery Accounting Energy
+    unique_id: energy_generator_to_battery_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_grid_power
+    name: Energy Small Home Grid Accounting Energy
+    unique_id: energy_small_home_grid_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_parents_home_grid_power
+    name: Energy Parents Home Grid Accounting Energy
+    unique_id: energy_parents_home_grid_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_solar_power
+    name: Energy Small Home Solar Accounting Energy
+    unique_id: energy_small_home_solar_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_parents_home_solar_power
+    name: Energy Parents Home Solar Accounting Energy
+    unique_id: energy_parents_home_solar_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_battery_power
+    name: Energy Small Home Battery Accounting Energy
+    unique_id: energy_small_home_battery_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_parents_home_battery_power
+    name: Energy Parents Home Battery Accounting Energy
+    unique_id: energy_parents_home_battery_accounting_energy
+    unit_prefix: k
+    round: 3
+    method: left
+  - platform: integration
+    source: sensor.energy_small_home_grid_cost_rate
+    name: Energy Small Home Grid Accounting Cost Total
+    unique_id: energy_small_home_grid_accounting_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_parents_home_grid_cost_rate
+    name: Energy Parents Home Grid Accounting Cost Total
+    unique_id: energy_parents_home_grid_accounting_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_small_home_battery_cost_rate
+    name: Energy Small Home Battery Accounting Cost Total
+    unique_id: energy_small_home_battery_accounting_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: integration
+    source: sensor.energy_parents_home_battery_cost_rate
+    name: Energy Parents Home Battery Accounting Cost Total
+    unique_id: energy_parents_home_battery_accounting_cost_total
+    unit_time: h
+    round: 2
+    method: trapezoidal
+  - platform: history_stats
+    name: Energy Generator Runtime Today
+    unique_id: energy_generator_runtime_today
+    entity_id: binary_sensor.energy_generator_running
+    state: 'on'
+    type: time
+    start: '{{ today_at() }}'
+    end: '{{ now() }}'
+  - platform: history_stats
+    name: Energy Generator Runtime This Month
+    unique_id: energy_generator_runtime_month
+    entity_id: binary_sensor.energy_generator_running
+    state: 'on'
+    type: time
+    start: '{{ today_at().replace(day=1) }}'
+    end: '{{ now() }}'
+  - platform: history_stats
+    name: Energy Generator Runtime This Year
+    unique_id: energy_generator_runtime_year
+    entity_id: binary_sensor.energy_generator_running
+    state: 'on'
+    type: time
+    start: '{{ today_at().replace(month=1, day=1) }}'
+    end: '{{ now() }}'
+
+utility_meter:
+  energy_grid_day_night:
+    source: sensor.energy_grid_input_energy
+    name: Energy Grid Day Night
+    tariffs: [day, night]
+  energy_grid_daily:
+    source: sensor.energy_grid_input_energy
+    name: Energy Grid Daily
+    cycle: daily
+  energy_grid_monthly:
+    source: sensor.energy_grid_input_energy
+    name: Energy Grid Monthly
+    cycle: monthly
+  energy_generator_daily:
+    source: sensor.energy_generator_input_energy
+    name: Energy Generator Daily
+    cycle: daily
+  energy_generator_monthly:
+    source: sensor.energy_generator_input_energy
+    name: Energy Generator Monthly
+    cycle: monthly
+  energy_battery_daily:
+    source: sensor.energy_battery_to_loads_energy
+    name: Energy Battery To Loads Daily
+    cycle: daily
+  energy_battery_accounting_daily:
+    source: sensor.energy_battery_to_loads_accounting_energy
+    name: Energy Battery Accounting Daily
+    cycle: daily
+  energy_pv_aggregate_today:
+    source: sensor.energy_solar_production_energy
+    name: Energy PV Aggregate Today
+    cycle: daily
+  energy_solar_production_hourly:
+    source: sensor.energy_solar_production_energy
+    name: Energy Solar Production Hourly
+    cycle: hourly
+  forecast_solar_production_hourly_v2:
+    source: sensor.forecast_solar_production_energy_v2
+    name: Forecast Solar Production Hourly V2
+    cycle: hourly
+
+# Battery ledger: only deltas after initialization are priced. PV charge is zero-cost;
+# grid charge is priced at the tariff active during the interval.
+automation:
+  - id: energy_battery_ledger_update
+    alias: Energy battery weighted cost ledger update
+    mode: queued
+    max: 2
+    trigger:
+      - platform: time_pattern
+        minutes: '/1'
+    condition:
+      - condition: template
+        value_template: >-
+          {{ states('sensor.cerbo_gx_dc_battery_charge_energy') not in ['unknown','unavailable','none']
+             and states('sensor.cerbo_gx_dc_battery_discharge_energy') not in ['unknown','unavailable','none']
+             and states('select.energy_grid_day_night') in ['day','night'] }}
+    action:
+      - variables:
+          charge_now: "{{ states('sensor.cerbo_gx_dc_battery_charge_energy') | float(0) }}"
+          discharge_now: "{{ states('sensor.cerbo_gx_dc_battery_discharge_energy') | float(0) }}"
+          previous_charge: "{{ states('input_number.energy_battery_ledger_last_charge') | float(0) }}"
+          previous_discharge: "{{ states('input_number.energy_battery_ledger_last_discharge') | float(0) }}"
+          delta_charge: "{{ [charge_now|float(0) - previous_charge|float(0), 0] | max }}"
+          delta_discharge: "{{ [discharge_now|float(0) - previous_discharge|float(0), 0] | max }}"
+          stock_kwh: "{{ states('input_number.energy_battery_ledger_stock_kwh') | float(0) }}"
+          stock_cost: "{{ states('input_number.energy_battery_ledger_stock_cost') | float(0) }}"
+          tariff: >-
+            {{ states('input_number.energy_grid_day_tariff') | float(0) if is_state('select.energy_grid_day_night','day')
+               else states('input_number.energy_grid_night_tariff') | float(0) }}
+          homes_power: "{{ states('sensor.energy_total_homes_power') | float(0) }}"
+          grid_charge_power: "{{ states('sensor.energy_grid_to_battery_power') | float(0) }}"
+          pv_charge_power: "{{ states('sensor.energy_pv_to_battery_power') | float(0) }}"
+          generator_charge_power: "{{ states('sensor.energy_generator_to_battery_power') | float(0) }}"
+          battery_charge_power: "{{ states('sensor.energy_battery_charge_power') | float(0) }}"
+          grid_charge_share: >-
+            {% set charge = battery_charge_power|float(0) %}
+            {% if charge > 0 %}{{ [[grid_charge_power|float(0) / charge, 1] | min, 0] | max }}{% else %}0{% endif %}
+          charge_efficiency: "{{ [states('input_number.energy_battery_ledger_charge_efficiency')|float(90) / 100, 0.01] | max }}"
+          discharge_efficiency: "{{ [states('input_number.energy_battery_ledger_discharge_efficiency')|float(90) / 100, 0.01] | max }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ charge_now|float(0) < previous_charge|float(0)
+                     or discharge_now|float(0) < previous_discharge|float(0) }}
+            sequence:
+              - action: input_number.set_value
+                target: {entity_id: input_number.energy_battery_ledger_last_charge}
+                data: {value: "{{ charge_now|float(0) }}"}
+              - action: input_number.set_value
+                target: {entity_id: input_number.energy_battery_ledger_last_discharge}
+                data: {value: "{{ discharge_now|float(0) }}"}
+        default:
+          - action: input_number.set_value
+            target: {entity_id: input_number.energy_battery_ledger_last_charge}
+            data: {value: "{{ charge_now|float(0) }}"}
+          - action: input_number.set_value
+            target: {entity_id: input_number.energy_battery_ledger_last_discharge}
+            data: {value: "{{ discharge_now|float(0) }}"}
+          - action: input_number.set_value
+            target: {entity_id: input_number.energy_battery_ledger_stock_kwh}
+            data:
+              value: >-
+                {% set stock = stock_kwh|float(0) %}
+                {% set charged = delta_charge|float(0) %}
+                {% set discharged = delta_discharge|float(0) %}
+                {{ [stock + charged - discharged, 0] | max }}
+          - action: input_number.set_value
+            target: {entity_id: input_number.energy_battery_ledger_stock_cost}
+            data:
+              value: >-
+                {% set stock = stock_kwh|float(0) %}
+                {% set cost = stock_cost|float(0) %}
+                {% set charged = delta_charge|float(0) %}
+                {% set discharged = delta_discharge|float(0) %}
+                {% set charge_eff = charge_efficiency|float(0.9) %}
+                {% set discharge_eff = discharge_efficiency|float(0.9) %}
+                {% set charge_cost = charged * (grid_charge_share|float(0)) * (tariff|float(0)) / charge_eff %}
+                {% set discharge_cost = (cost / stock * discharged / discharge_eff) if stock > 0.01 and discharge_eff > 0 else 0 %}
+                {{ [cost + charge_cost - discharge_cost, 0] | max }}
+
+  - id: energy_battery_ledger_initialize
+    alias: Energy battery ledger initialize readings
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+    condition: []
+    action:
+      - action: input_number.set_value
+        target: {entity_id: input_number.energy_battery_ledger_last_charge}
+        data: {value: "{{ states('sensor.cerbo_gx_dc_battery_charge_energy') | float(0) }}"}
+      - action: input_number.set_value
+        target: {entity_id: input_number.energy_battery_ledger_last_discharge}
+        data: {value: "{{ states('sensor.cerbo_gx_dc_battery_discharge_energy') | float(0) }}"}
+
+input_select:
+  solar_forecast_day:
+    name: День прогнозу сонячної генерації
+    options:
+      - Сьогодні
+      - Завтра
+    initial: Сьогодні
+    icon: mdi:calendar-range

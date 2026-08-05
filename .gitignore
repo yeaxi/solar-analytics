@@ -1,0 +1,41 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+env/
+
+# macOS and editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Credentials and local runtime state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.log
+
+# Generated candidate bundles and build artifacts
+*.tar.gz
+*.zip
+build/
+dist/
+
+# Temporary reports/output
+reports/**/tmp/
+reports/**/output/

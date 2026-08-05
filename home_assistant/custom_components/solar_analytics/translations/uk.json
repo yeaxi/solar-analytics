@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Solar Analytics",
+        "description": "Інтеграція автоматично прив’язується до єдиного native Forecast.Solar config entry, вибраного Energy Dashboard, і двох canonical actual sensors: sensor.garage_cerbo_gx_pv_power та sensor.garage_cerbo_gx_pv_energy. Власні REST/provider requests, дубльовані entity-поля, notifications і фізичне керування не використовуються. Невирішений native contract або stale telemetry блокує висновок.",
+        "data": {}
+      },
+      "init": {
+        "title": "Налаштування Solar Analytics v2",
+        "description": "Mutable thresholds/options відсутні навмисно: зміна native моделі створює окрему lineage/epoch. Фіксовані snapshots: D-1 06:00 та D-1 23:00 Europe/Kyiv; morning baseline єдиний для accuracy.",
+        "data": {}
+      }
+    }
+  }
+}

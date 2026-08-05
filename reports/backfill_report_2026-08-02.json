@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-08-02T18:16:11.684163+00:00",
+  "timezone": "Europe/Kyiv",
+  "source": "/config/home-assistant_v2.db",
+  "forbidden_current_forecast_applied": false,
+  "actual_daily": [
+    {"local_date":"2026-07-23","energy_kwh":0.0,"rows":237,"coverage_ratio_5m":0.8229166667,"gaps":0},
+    {"local_date":"2026-07-24","energy_kwh":0.0,"rows":288,"coverage_ratio_5m":1.0,"gaps":0},
+    {"local_date":"2026-07-25","energy_kwh":13.3332852864,"rows":288,"coverage_ratio_5m":1.0,"gaps":0},
+    {"local_date":"2026-07-26","energy_kwh":12.8483646435,"rows":288,"coverage_ratio_5m":1.0,"gaps":0},
+    {"local_date":"2026-07-27","energy_kwh":14.3634501024,"rows":288,"coverage_ratio_5m":1.0,"gaps":0},
+    {"local_date":"2026-07-28","energy_kwh":9.0687051055,"rows":288,"coverage_ratio_5m":1.0,"gaps":0},
+    {"local_date":"2026-07-29","energy_kwh":17.8163307004,"rows":288,"coverage_ratio_5m":1.0,"gaps":0},
+    {"local_date":"2026-07-30","energy_kwh":18.6905466603,"rows":287,"coverage_ratio_5m":0.9965277778,"gaps":0},
+    {"local_date":"2026-07-31","energy_kwh":28.6494893900,"rows":288,"coverage_ratio_5m":1.0,"gaps":0},
+    {"local_date":"2026-08-01","energy_kwh":23.4528259694,"rows":288,"coverage_ratio_5m":1.0,"gaps":0},
+    {"local_date":"2026-08-02","energy_kwh":26.6406090999,"rows":194,"coverage_ratio_5m":0.6736111111,"gaps":1}
+  ],
+  "reconstructed_day_ahead": {
+    "forecast_solar": [
+      {"target_date":"2026-07-27","snapshot_timestamp":"2026-07-26T19:41:27.605550+03:00","forecast_kwh":10.3},
+      {"target_date":"2026-07-29","snapshot_timestamp":"2026-07-28T19:30:07.587874+03:00","forecast_kwh":23.048},
+      {"target_date":"2026-07-31","snapshot_timestamp":"2026-07-30T19:38:57.750528+03:00","forecast_kwh":34.026},
+      {"target_date":"2026-08-03","snapshot_timestamp":"2026-08-02T20:00:45.707612+03:00","forecast_kwh":25.083}
+    ],
+    "vrm": [
+      {"target_date":"2026-07-27","snapshot_timestamp":"2026-07-26T19:41:28.090114+03:00","forecast_kwh":10.3051798957},
+      {"target_date":"2026-07-29","snapshot_timestamp":"2026-07-28T19:35:42.897985+03:00","forecast_kwh":0.0},
+      {"target_date":"2026-07-31","snapshot_timestamp":"2026-07-30T19:38:57.743824+03:00","forecast_kwh":19.3903743302},
+      {"target_date":"2026-08-03","snapshot_timestamp":"2026-08-02T20:00:45.424736+03:00","forecast_kwh":18.1084402387}
+    ]
+  },
+  "classification": "reconstructed_from_archived_state_at_snapshot_window",
+  "missing": [],
+  "notes": [
+    "No current forecast was applied to historical dates.",
+    "No true hourly VRM history exists; no hourly profile was reconstructed.",
+    "2026-08-02 is incomplete and must not enter completed-day accuracy until coverage closes."
+  ]
+}

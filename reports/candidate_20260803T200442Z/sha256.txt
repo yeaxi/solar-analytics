@@ -1,0 +1,1 @@
+478f1af3a52e093457af1998c0a960267ec80daafd1761d4078784938adaa31b  reports/candidate_20260803T200442Z/solar_analytics_v2_candidate.tar.gz

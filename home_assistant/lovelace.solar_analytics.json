@@ -1,0 +1,485 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace.solar_analytics",
+  "data": {
+    "config": {
+      "title": "Solar Analytics",
+      "views": [
+        {
+          "title": "Solar Analytics",
+          "path": "solar-analytics",
+          "icon": "mdi:solar-power",
+          "type": "sections",
+          "max_columns": 3,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Solar Analytics",
+                  "heading_style": "title",
+                  "icon": "mdi:solar-power"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.solar_analytics_analysis_status",
+                  "name": "System status",
+                  "icon": "mdi:shield-sun"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.solar_analytics_actual_pv_power",
+                  "name": "Actual PV",
+                  "icon": "mdi:solar-power"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.solar_analytics_forecast_solar_power",
+                  "name": "Forecast.Solar now",
+                  "icon": "mdi:weather-sunny"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.solar_analytics_victron_vrm_forecast_power",
+                  "name": "VRM Forecast now",
+                  "icon": "mdi:solar-power-variant"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.solar_analytics_current_pv_limitation",
+                  "name": "Current limitation",
+                  "icon": "mdi:transmission-tower-off"
+                },
+                {
+                  "type": "tile",
+                  "entity": "sensor.solar_analytics_last_solar_insight",
+                  "name": "Main insight",
+                  "icon": "mdi:lightbulb-alert-outline"
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "title": "Insight",
+                  "content": "## {{ states('sensor.solar_analytics_analysis_status') | replace('_', ' ') | title }}\n\n**Main insight:** {{ states('sensor.solar_analytics_last_solar_insight') }}\n\n**Forecast.Solar / VRM agreement:** {{ 'available after valid history' if state_attr('sensor.solar_analytics_solar_insight_json', 'insight') is none else (state_attr('sensor.solar_analytics_solar_insight_json', 'insight').get('forecast_accuracy', {}).get('best_provider_30d') or 'not enough data') }}\n\n**Validity:** `{{ states('sensor.solar_analytics_current_pv_limitation') }}`\n\n**Next action:** {{ 'No automatic action; continue collecting uncurtailed valid data.' if states('sensor.solar_analytics_analysis_status') in ['normal', 'curtailed_normally', 'insufficient_data'] else 'Review the evidence in the accuracy and diagnostics sections.' }}"
+                },
+                {
+                  "type": "entities",
+                  "title": "Gates and events",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "binary_sensor.solar_analytics_pv_performance_analysis_valid",
+                      "name": "Analysis valid"
+                    },
+                    {
+                      "entity": "binary_sensor.solar_analytics_pv_curtailment_detected",
+                      "name": "Curtailment"
+                    },
+                    {
+                      "entity": "binary_sensor.solar_analytics_pv_near_zero_anomaly",
+                      "name": "Near-zero anomaly"
+                    },
+                    {
+                      "entity": "binary_sensor.solar_analytics_pv_possible_underperformance",
+                      "name": "Possible underperformance"
+                    },
+                    {
+                      "entity": "binary_sensor.solar_analytics_pv_storm_follow_up",
+                      "name": "Storm follow-up"
+                    },
+                    {
+                      "entity": "binary_sensor.solar_analytics_pv_analysis_data_quality_problem",
+                      "name": "Data quality problem"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Actual vs forecast · 24 h history + 24 h future",
+                  "heading_style": "subtitle",
+                  "icon": "mdi:chart-timeline-variant"
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "PV power: actual / Forecast.Solar / VRM"
+                  },
+                  "graph_span": "48h",
+                  "update_interval": "5min",
+                  "now": {
+                    "show": true,
+                    "label": "Now",
+                    "color": "#ff9800"
+                  },
+                  "yaxis": [
+                    {
+                      "min": 0,
+                      "decimals": 0
+                    }
+                  ],
+                  "series": [
+                    {
+                      "entity": "sensor.energy_solar_production_power",
+                      "name": "Actual PV",
+                      "type": "area",
+                      "color": "#43a047",
+                      "stroke_width": 2,
+                      "opacity": 0.25,
+                      "group_by": {
+                        "func": "avg",
+                        "duration": "30min"
+                      }
+                    },
+                    {
+                      "entity": "sensor.solar_analytics_solar_future_profile",
+                      "name": "Forecast.Solar",
+                      "type": "line",
+                      "color": "#f9a825",
+                      "stroke_width": 3,
+                      "stroke_dash": 6,
+                      "data_generator": "return (entity.attributes.points || []).map(p => [new Date(p.ts).getTime(), p.forecast_solar_w]);"
+                    },
+                    {
+                      "entity": "sensor.solar_analytics_solar_future_profile",
+                      "name": "Victron VRM Forecast",
+                      "type": "line",
+                      "color": "#1565c0",
+                      "stroke_width": 3,
+                      "data_generator": "return (entity.attributes.points || []).filter(p => p.vrm_forecast_w !== null).map(p => [new Date(p.ts).getTime(), p.vrm_forecast_w]);"
+                    }
+                  ],
+                  "apex_config": {
+                    "chart": {
+                      "animations": {
+                        "enabled": false
+                      }
+                    },
+                    "stroke": {
+                      "curve": "smooth"
+                    },
+                    "tooltip": {
+                      "shared": true,
+                      "intersect": false
+                    }
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "**Annotations/events:** `storm_context`, `curtailment_reason`, MPPT error, validity reason and anomaly start are attached to the prepared interval records. VRM is not drawn as a confidence band because HA exposes no VRM interval."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Future forecast",
+                  "heading_style": "subtitle",
+                  "icon": "mdi:weather-sunny-clock"
+                },
+                {
+                  "type": "entities",
+                  "title": "Forecast totals and peaks",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "sensor.energy_production_today",
+                      "name": "Forecast.Solar today"
+                    },
+                    {
+                      "entity": "sensor.energy_production_tomorrow",
+                      "name": "Forecast.Solar tomorrow"
+                    },
+                    {
+                      "entity": "sensor.victron_remote_monitoring_estimated_energy_production_today",
+                      "name": "VRM Forecast today"
+                    },
+                    {
+                      "entity": "sensor.victron_remote_monitoring_estimated_energy_production_tomorrow",
+                      "name": "VRM Forecast tomorrow"
+                    },
+                    {
+                      "entity": "sensor.power_highest_peak_time_tomorrow",
+                      "name": "Forecast.Solar peak tomorrow"
+                    },
+                    {
+                      "entity": "sensor.victron_remote_monitoring_highest_peak_time_tomorrow",
+                      "name": "VRM peak tomorrow"
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "### VRM hourly availability\n`{{ state_attr('sensor.solar_analytics_solar_future_profile', 'vrm_hourly_profile_status') or 'unknown' }}`\n\nOnly values actually exposed by the existing VRM integration are plotted; no p10/p50/p90 or synthetic hourly distribution is created."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Daily actual vs day-ahead snapshot · 90 days",
+                  "heading_style": "subtitle",
+                  "icon": "mdi:calendar-chart"
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Daily yield and true archived snapshots"
+                  },
+                  "graph_span": "90d",
+                  "series": [
+                    {
+                      "entity": "sensor.solar_analytics_solar_daily_comparison",
+                      "name": "Actual valid PV",
+                      "type": "column",
+                      "color": "#43a047",
+                      "data_generator": "return (entity.attributes.points || []).map(p => [new Date(p[0]).getTime(), p[1]]);"
+                    },
+                    {
+                      "entity": "sensor.solar_analytics_solar_daily_comparison",
+                      "name": "Forecast.Solar day-ahead",
+                      "type": "line",
+                      "color": "#f9a825",
+                      "stroke_dash": 6,
+                      "data_generator": "return (entity.attributes.points || []).filter(p => p[2] !== null).map(p => [new Date(p[0]).getTime(), p[2]]);"
+                    },
+                    {
+                      "entity": "sensor.solar_analytics_solar_daily_comparison",
+                      "name": "VRM day-ahead",
+                      "type": "line",
+                      "color": "#1565c0",
+                      "data_generator": "return (entity.attributes.points || []).filter(p => p[3] !== null).map(p => [new Date(p[0]).getTime(), p[3]]);"
+                    }
+                  ],
+                  "apex_config": {
+                    "tooltip": {
+                      "shared": true,
+                      "intersect": false
+                    },
+                    "xaxis": {
+                      "type": "datetime"
+                    }
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "**Point schema:** date · actual kWh · Forecast.Solar snapshot kWh · VRM snapshot kWh · each daily error · valid coverage · curtailment minutes · storm flag · data quality. Missing snapshot means `missing`, never current forecast applied to history."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Forecast accuracy and expected-production realization",
+                  "heading_style": "subtitle",
+                  "icon": "mdi:target"
+                },
+                {
+                  "type": "markdown",
+                  "content": "{% set a = state_attr('sensor.solar_analytics_solar_insight_json', 'insight') or {} %}{% set f = a.get('forecast_accuracy', {}) %}{% set e = a.get('expected_production', {}) %}## 30-day accuracy\n\n| Metric | Forecast.Solar | Victron VRM |\n|---|---:|---:|\n| Bias | {{ f.get('forecast_solar_bias_30d', '—') }} | {{ f.get('vrm_bias_30d', '—') }} |\n| WAPE | {{ f.get('forecast_solar_wape_30d', '—') }} | {{ f.get('vrm_wape_30d', '—') }} |\n| Confidence | {{ f.get('forecast_solar_confidence_30d', '—') }} | {{ f.get('vrm_confidence_30d', '—') }} |\n\n**Best provider 30d:** {{ f.get('best_provider_30d', 'insufficient data') }}  \n**Best provider 90d:** {{ f.get('best_provider_90d', 'insufficient data') }}  \n**Forecast.Solar realization:** {{ e.get('forecast_solar_realization', '—') }}  \n**VRM expected-production realization:** {{ e.get('vrm_realization', '—') }}  \n**Consensus realization:** {{ e.get('consensus_realization', '—') }}  \n**Historical baseline:** {{ e.get('historical_baseline', '—') }}  \n**Valid coverage:** {{ e.get('valid_coverage', '—') }}"
+                },
+                {
+                  "type": "entities",
+                  "title": "Analysis outputs",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "sensor.solar_analytics_solar_forecast_accuracy",
+                      "name": "Accuracy JSON attributes"
+                    },
+                    {
+                      "entity": "sensor.solar_analytics_solar_insight_json",
+                      "name": "Structured insight / Hermes payload"
+                    },
+                    {
+                      "entity": "sensor.solar_analytics_solar_daily_comparison",
+                      "name": "Daily prepared aggregate"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "30-minute realization heatmap",
+                  "heading_style": "subtitle",
+                  "icon": "mdi:heatmap"
+                },
+                {
+                  "type": "custom:plotly-graph",
+                  "title": "Consensus realization by date and local interval",
+                  "entities": [
+                    {
+                      "entity": "sensor.solar_analytics_solar_performance_heatmap",
+                      "name": "Consensus realization",
+                      "x": "x",
+                      "y": "y",
+                      "z": "z",
+                      "customdata": "customdata",
+                      "type": "heatmap",
+                      "colorscale": "RdYlGn",
+                      "zmin": 0,
+                      "zmax": 1.2,
+                      "hovertemplate": "%{customdata[0]}<br>Actual %{customdata[1]} W<br>Forecast.Solar %{customdata[2]} W<br>VRM %{customdata[3]} W<br>Consensus %{customdata[4]} W<br>Validity %{customdata[5]}<br>Limitation %{customdata[6]}<br>Storm %{customdata[7]}<extra></extra>"
+                    }
+                  ],
+                  "layout": {
+                    "height": 560,
+                    "xaxis": {
+                      "title": "Local date",
+                      "type": "category"
+                    },
+                    "yaxis": {
+                      "title": "Europe/Kyiv local time",
+                      "type": "category",
+                      "autorange": "reversed"
+                    },
+                    "hovermode": "closest",
+                    "margin": {
+                      "l": 75,
+                      "r": 20,
+                      "t": 35,
+                      "b": 70
+                    }
+                  }
+                },
+                {
+                  "type": "markdown",
+                  "content": "Empty cells are invalid/missing data. This view is intended to expose morning/evening shading, seasonal patterns, step changes, clipping and curtailment without calling any provider an independent actual."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Victron diagnostics and limitation context",
+                  "heading_style": "subtitle",
+                  "icon": "mdi:car-battery"
+                },
+                {
+                  "type": "custom:plotly-graph",
+                  "title": "PV voltage/current and MPPT power",
+                  "hours_to_show": 48,
+                  "entities": [
+                    {
+                      "entity": "sensor.garage_cerbo_gx_pv_power",
+                      "name": "Cerbo GX PV power"
+                    },
+                    {
+                      "entity": "sensor.smartsolar_mppt_ve_can_250_100_rev2_pv_bus_voltage",
+                      "name": "PV voltage"
+                    },
+                    {
+                      "entity": "sensor.smartsolar_mppt_ve_can_250_100_rev2_pv_current",
+                      "name": "PV current"
+                    },
+                    {
+                      "entity": "sensor.smartsolar_mppt_ve_can_250_100_rev2_max_power_today",
+                      "name": "MPPT max today"
+                    }
+                  ],
+                  "layout": {
+                    "height": 420,
+                    "hovermode": "x unified"
+                  }
+                },
+                {
+                  "type": "entities",
+                  "title": "MPPT / ESS state",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "sensor.smartsolar_mppt_ve_can_250_100_rev2_state",
+                      "name": "MPPT state"
+                    },
+                    {
+                      "entity": "sensor.smartsolar_mppt_ve_can_250_100_rev2_mppt_operation_mode",
+                      "name": "MPPT mode"
+                    },
+                    {
+                      "entity": "sensor.smartsolar_mppt_ve_can_250_100_rev2_error_code",
+                      "name": "MPPT error code"
+                    },
+                    {
+                      "entity": "sensor.smartsolar_mppt_ve_can_250_100_rev2_device_off_reason",
+                      "name": "Device off reason"
+                    },
+                    {
+                      "entity": "sensor.cerbo_gx_dc_battery_charge",
+                      "name": "Battery SOC"
+                    },
+                    {
+                      "entity": "sensor.garage_cerbo_gx_dvcc_state",
+                      "name": "DVCC"
+                    },
+                    {
+                      "entity": "sensor.garage_cerbo_gx_ess_batterylife_state",
+                      "name": "ESS battery-life state"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Snapshots, recommendations and source contract",
+                  "heading_style": "subtitle",
+                  "icon": "mdi:database-clock"
+                },
+                {
+                  "type": "markdown",
+                  "content": "## Persistence\n\n- SQLite: `/config/solar_analytics/solar_analytics.sqlite`\n- Snapshot identity: source lineage + snapshot type + scheduled UTC slot\n- Morning snapshot: D-1 06:00 Europe/Kyiv; the only accuracy baseline\n- Day-ahead snapshot: D-1 23:00 Europe/Kyiv; persistence/diagnostic only\n- Retention: 10 years for lineages, snapshots, intervals and daily/accuracy results\n- Restart retries are idempotent; snapshots are not JSON state blobs.\n\n## Recommendations\n\n{{ (state_attr('sensor.solar_analytics_solar_insight_json', 'insight') or {}).get('recommendations', []) }}\n\nRecommendations are review-only. Forecast.Solar azimuth/tilt/damping/capacity is never changed automatically."
+                },
+                {
+                  "type": "entities",
+                  "title": "Snapshot/quality state",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "sensor.solar_analytics_solar_future_profile",
+                      "name": "Future profile"
+                    },
+                    {
+                      "entity": "sensor.solar_analytics_solar_performance_heatmap",
+                      "name": "Prepared heatmap"
+                    },
+                    {
+                      "entity": "sensor.solar_analytics_last_updated",
+                      "name": "Last update"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

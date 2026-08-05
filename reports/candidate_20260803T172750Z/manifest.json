@@ -1,0 +1,85 @@
+{
+  "candidate": "candidate_20260803T172750Z",
+  "archive": "solar_analytics_v2_candidate.tar.gz",
+  "member_count": 15,
+  "members": [
+    {
+      "path": "home_assistant/custom_components/solar_analytics/__init__.py",
+      "bytes": 1865,
+      "sha256": "76b33ca7637cf1a7c42073a0a0df1adf83b078fd5e3953a82b749ebb8507fbe3"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/binary_sensor.py",
+      "bytes": 3710,
+      "sha256": "ee7b91f2867cf7d4cc43b6ce4b9e92d6875055e33441a8f9e92b60cc5492ad8d"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/config_flow.py",
+      "bytes": 1878,
+      "sha256": "58983b66bb6bbad9c123b07cad1425a9fb3559137135714bc9565d37e182aa62"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/const.py",
+      "bytes": 874,
+      "sha256": "a4c1f71fd2e844747ae8b08f248db2426b58d8e87b40b0edee01e671084954a4"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/coordinator.py",
+      "bytes": 28769,
+      "sha256": "1a55bb26e6b2f75e19d956234bd709608f1c1034f623abf787458b051a5b91fb"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/entity_contract.py",
+      "bytes": 931,
+      "sha256": "bb3df7300f5610e341421ae434d3acf371f215cba3fac5327f80a971e7bc544c"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/manifest.json",
+      "bytes": 331,
+      "sha256": "98d57da9ac88885501e5b5a5e15ffd8d7b4f29f23519bd5875316bd032189d1c"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/native.py",
+      "bytes": 9686,
+      "sha256": "18685403d3662f8a6c8de3913e3d49d7be5a20538d11c5ba73e69ae5bb8aa741"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/native_adapter.py",
+      "bytes": 16850,
+      "sha256": "20fabfdca0d73640cc5be6f75b70f73f45908eca87dcb6402a9b551160b97693"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/sensor.py",
+      "bytes": 7906,
+      "sha256": "33a8fa9f2edca0050ceeb99e3d00135739ed7fcaf6923f1d71138fdc2eb708e4"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/storage_v2.py",
+      "bytes": 30773,
+      "sha256": "e734d9a7472292d66b50e78f5fa34cf92e00ed9cef8587afcf88837c68a752d5"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/strings.json",
+      "bytes": 966,
+      "sha256": "54cff8173bd13c6a261003974148c196b059cd2110fb8db48e3a9f2a391bd141"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/translations/uk.json",
+      "bytes": 1064,
+      "sha256": "3e20817a2792a3ebc279065506cb0f39bf9e0ffc1d3fa3c29e445809f1ae0dd2"
+    },
+    {
+      "path": "home_assistant/custom_components/solar_analytics/v2_metrics.py",
+      "bytes": 7818,
+      "sha256": "0c2d83a20d8ae514b699955798abcdd8a6ef10d4c6a1d62b49c0446e6a2c35ca"
+    },
+    {
+      "path": "home_assistant/packages/solar_analytics.yaml",
+      "bytes": 163,
+      "sha256": "623eddd45d79474f9b670617680f23b3ac030452fd4ec670e433b3cafb226bce"
+    }
+  ],
+  "archive_sha256": "47eb1d7efe44d3f54912faebff4fc79143f6974df256d193f7c8cfde4dbe745e",
+  "archive_bytes": 26241,
+  "traversal_safe": true
+}

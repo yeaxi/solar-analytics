@@ -1,0 +1,55 @@
+# Deployment replacement block for the existing live package:
+# /config/packages/energy_split.yaml
+#
+# Replace the current `rest:` Forecast Solar Hourly API block with this block.
+# Do not load this file as an additional package: it is a replacement overlay,
+# otherwise Home Assistant would create a duplicate REST producer.
+rest:
+  - resource_template: >-
+      {% set native_url = state_attr(
+        'sensor.solar_analytics_native_forecast_solar_module_power',
+        'forecast_solar_rest_url'
+      ) %}
+      {{ native_url if native_url else
+         'https://api.forecast.solar/estimate/watthours/period/0/0/0/0/0?time=iso8601' }}
+    # Keep the existing hourly request cadence; a native-model change triggers
+    # an explicit non-physical update_entity refresh below.
+    scan_interval: 3600
+    timeout: 20
+    sensor:
+      - name: Forecast Solar Hourly API
+        unique_id: forecast_solar_hourly_api
+        value_template: >-
+          {% if value_json is not defined or value_json.result is not defined or value_json.result is not mapping %}
+            0
+          {% else %}
+            {{ (value_json.result.values() | list | sum(start=0) / 1000) | round(3) }}
+          {% endif %}
+        unit_of_measurement: kWh
+        device_class: energy
+        json_attributes:
+          - result
+
+automation:
+  - id: solar_analytics_refresh_forecast_solar_rest_on_native_model_change
+    alias: Solar Analytics refresh Forecast.Solar REST after native model change
+    mode: restart
+    trigger:
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id: sensor.solar_analytics_native_forecast_solar_module_power
+      - platform: state
+        entity_id: sensor.solar_analytics_native_forecast_solar_module_power
+        attribute: forecast_solar_rest_url
+    action:
+      - delay: "00:00:30"
+      - condition: template
+        value_template: >-
+          {{ state_attr('sensor.solar_analytics_native_forecast_solar_module_power',
+             'forecast_solar_rest_url') is string and
+             state_attr('sensor.solar_analytics_native_forecast_solar_module_power',
+             'forecast_solar_rest_url') | length > 0 }}
+      - service: homeassistant.update_entity
+        target:
+          entity_id: sensor.forecast_solar_hourly_api

@@ -1,0 +1,10 @@
+[project]
+name = "solar-analytics"
+version = "0.1.0"
+description = "Deterministic Solar Analytics engine for Home Assistant"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
