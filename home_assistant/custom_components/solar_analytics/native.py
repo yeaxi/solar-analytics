@@ -15,10 +15,12 @@ from statistics import median
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
+from .const import VERSION as _INTEGRATION_VERSION
+
 UTC = timezone.utc
 KYIV = ZoneInfo("Europe/Kyiv")
-NATIVE_CONTRACT_VERSION = "ha_forecast_solar_energy_2026.7.4"
-NATIVE_ADAPTER_VERSION = "2.0.1"
+NATIVE_CONTRACT_VERSION = "ha_forecast_solar_energy_2026.7"
+NATIVE_ADAPTER_VERSION = _INTEGRATION_VERSION
 MAX_NATIVE_PERIOD_SECONDS = 2 * 60 * 60
 
 

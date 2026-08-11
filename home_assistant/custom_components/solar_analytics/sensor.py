@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 
-from .const import DOMAIN, MANUFACTURER, NAME
+from .const import DOMAIN, MANUFACTURER, NAME, VERSION
 from .coordinator import SolarAnalyticsCoordinator
 from .entity_contract import DASHBOARD_ENTITY_OBJECT_IDS, DASHBOARD_ENTITY_UNIQUE_IDS
 
@@ -61,7 +61,7 @@ class SolarAnalyticsSensor(CoordinatorEntity[SolarAnalyticsCoordinator], SensorE
             name=NAME,
             manufacturer=MANUFACTURER,
             model="Native Forecast.Solar period analytics",
-            sw_version="2.0.0",
+            sw_version=VERSION,
         )
 
     @property

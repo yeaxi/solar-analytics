@@ -1,25 +1,60 @@
-"""Constants for the read-only Solar Analytics v2 integration."""
+"""Constants for the read-only Solar Analytics integration.
+
+Version identifiers and the manufacturer string are derived from
+``manifest.json`` at import time so the integration exposes exactly one
+authoritative value for each field. This prevents the ``manifest.version`` /
+``const.VERSION`` / ``DeviceInfo.sw_version`` / ``NATIVE_ADAPTER_VERSION``
+drift that used to make bumps a four-touch exercise.
+"""
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Final
 
-DOMAIN: Final = "solar_analytics"
-NAME: Final = "Solar Analytics"
-VERSION: Final = "2.0.0"
-MANUFACTURER: Final = "Hermes Agent by Nous Research"
+_MANIFEST_PATH: Final = Path(__file__).with_name("manifest.json")
+
+
+def _load_manifest() -> dict[str, object]:
+    """Return the parsed manifest.json contents.
+
+    Manifest reads happen exactly once at import time. HA calls
+    ``async_get_integration`` for the same data at runtime; both paths must
+    agree on the version, which is why we keep a single on-disk source.
+    """
+
+    with _MANIFEST_PATH.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+_MANIFEST: Final = _load_manifest()
+
+DOMAIN: Final[str] = str(_MANIFEST["domain"])
+NAME: Final[str] = str(_MANIFEST["name"])
+VERSION: Final[str] = str(_MANIFEST["version"])
+MANUFACTURER: Final[str] = "Solar Analytics"
 
 CONF_ACTUAL_POWER: Final = "actual_power_entity"
 CONF_ACTUAL_ENERGY_TODAY: Final = "actual_energy_today_entity"
 CONF_NATIVE_FORECAST_ENTRY_ID: Final = "native_forecast_entry_id"
 CONF_TIME_ZONE: Final = "time_zone"
+CONF_MORNING_HOUR: Final = "morning_snapshot_hour"
+CONF_DAY_AHEAD_HOUR: Final = "day_ahead_snapshot_hour"
 
-# Exact IDs verified as the Energy Dashboard solar inputs. There is no fallback.
+DEFAULT_MORNING_HOUR: Final[int] = 6
+DEFAULT_DAY_AHEAD_HOUR: Final[int] = 23
+
+SNAPSHOT_DAY_AHEAD: Final[str] = "day_ahead"
+SNAPSHOT_MORNING: Final[str] = "morning"
+
+# Legacy defaults kept temporarily during the reusability refactor. Later
+# commits in this branch replace them with user-selectable config-flow values
+# (actual PV entities become required selectors; timezone defaults to
+# hass.config.time_zone).
+_LEGACY_DEFAULT_TIME_ZONE: Final[str] = "Europe/Kyiv"
+DEFAULT_TIME_ZONE: Final[str] = _LEGACY_DEFAULT_TIME_ZONE
 DEFAULT_ENTITIES: Final[dict[str, str]] = {
     CONF_ACTUAL_POWER: "sensor.garage_cerbo_gx_pv_power",
     CONF_ACTUAL_ENERGY_TODAY: "sensor.garage_cerbo_gx_pv_energy",
 }
-
-DEFAULT_TIME_ZONE: Final[str] = "Europe/Kyiv"
-SNAPSHOT_DAY_AHEAD: Final[str] = "day_ahead"
-SNAPSHOT_MORNING: Final[str] = "morning"

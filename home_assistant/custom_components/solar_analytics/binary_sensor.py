@@ -11,7 +11,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, NAME
+from .const import DOMAIN, MANUFACTURER, NAME, VERSION
 from .coordinator import SolarAnalyticsCoordinator
 
 
@@ -41,7 +41,7 @@ class SolarAnalyticsBinarySensor(CoordinatorEntity[SolarAnalyticsCoordinator], B
             name=NAME,
             manufacturer=MANUFACTURER,
             model="Native Forecast.Solar period analytics",
-            sw_version="2.0.0",
+            sw_version=VERSION,
         )
 
     @property
