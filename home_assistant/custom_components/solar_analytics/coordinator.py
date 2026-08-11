@@ -1,4 +1,11 @@
-"""Read-only Solar Analytics v2 coordinator."""
+"""Read-only Solar Analytics coordinator.
+
+Owns the update loop, the two scheduled snapshot timers (both fired in the
+user-configured analytics timezone, not in ``hass.config.time_zone``), and
+the executor boundary for the synchronous SQLite store. Never mutates
+Home Assistant state, calls services, or triggers refreshes on any other
+integration.
+"""
 
 from __future__ import annotations
 
@@ -12,13 +19,17 @@ from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     CONF_ACTUAL_ENERGY_TODAY,
     CONF_ACTUAL_POWER,
-    DEFAULT_ENTITIES,
+    CONF_DAY_AHEAD_HOUR,
+    CONF_MORNING_HOUR,
+    CONF_TIME_ZONE,
+    DEFAULT_DAY_AHEAD_HOUR,
+    DEFAULT_MORNING_HOUR,
     DOMAIN,
     NAME,
 )
@@ -26,11 +37,8 @@ from .native import NATIVE_ADAPTER_VERSION, NATIVE_CONTRACT_VERSION, NativePerio
 from .native_adapter import ForecastSolarNativeAdapter, NativeObservation, NativeRead
 from .storage_v2 import METRIC_VERSION, NORMALIZATION_VERSION, SolarAnalyticsV2Store, StorageError
 from .v2_metrics import (
-    ENERGY_ENTITY,
-    KYIV,
     MIN_ACTUAL_COVERAGE,
     MIN_FORECAST_COVERAGE,
-    POWER_ENTITY,
     ROLLING_DAYS,
     ActualState,
     compute_accuracy,
@@ -41,7 +49,32 @@ from .v2_metrics import (
 _LOGGER = logging.getLogger(__name__)
 UTC = timezone.utc
 UPDATE_INTERVAL = timedelta(minutes=5)
-SNAPSHOT_TIMEZONE = "Europe/Kyiv"
+
+
+def _default_time_zone(hass: HomeAssistant) -> str:
+    """Return the timezone Solar Analytics should default to.
+
+    Uses Home Assistant's own configured timezone; ``UTC`` if HA has none.
+    """
+
+    config = getattr(hass, "config", None)
+    configured = getattr(config, "time_zone", None) if config is not None else None
+    return str(configured) if configured else "UTC"
+
+
+def _next_local_hour_utc(now_utc: datetime, tz: ZoneInfo, hour: int) -> datetime:
+    """Return the next UTC instant matching ``hour:00`` local time in ``tz``.
+
+    If the current local time is already past ``hour:00`` today, we advance
+    to the same hour tomorrow. Uses whole-hour granularity to keep the
+    scheduled instant identical to what the coordinator persists.
+    """
+
+    now_local = now_utc.astimezone(tz)
+    candidate_local = now_local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if candidate_local <= now_local:
+        candidate_local = candidate_local + timedelta(days=1)
+    return candidate_local.astimezone(UTC)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -78,11 +111,17 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
-        self.time_zone = ZoneInfo(str(entry.data.get("time_zone") or SNAPSHOT_TIMEZONE))
+        self.time_zone = ZoneInfo(
+            str(entry.data.get(CONF_TIME_ZONE) or _default_time_zone(hass))
+        )
+        self.morning_hour = int(entry.data.get(CONF_MORNING_HOUR, DEFAULT_MORNING_HOUR))
+        self.day_ahead_hour = int(entry.data.get(CONF_DAY_AHEAD_HOUR, DEFAULT_DAY_AHEAD_HOUR))
         storage_path = Path(hass.config.path("solar_analytics", "solar_analytics.sqlite"))
         self.store = SolarAnalyticsV2Store(storage_path)
         self.native_adapter = ForecastSolarNativeAdapter(hass, entry)
         self._unsubscribers: list[Any] = []
+        self._morning_unsub: Any | None = None
+        self._day_ahead_unsub: Any | None = None
         self._last_native_read: NativeRead | None = None
         self._last_payload: dict[str, Any] | None = None
         self._initialized = False
@@ -92,7 +131,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
             name=NAME,
             update_interval=UPDATE_INTERVAL,
-            always_update=True,
+            always_update=False,
         )
 
     async def async_initialize(self) -> None:
@@ -100,20 +139,33 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self.hass.async_add_executor_job(self.store.initialize)
         await self.native_adapter.async_initialize()
-        self._unsubscribers.extend(
-            [
-                async_track_time_change(self.hass, self._morning_timer, hour=6, minute=0, second=0),
-                async_track_time_change(self.hass, self._day_ahead_timer, hour=23, minute=0, second=0),
-            ]
-        )
+        self._schedule_next_snapshot("morning", self.morning_hour)
+        self._schedule_next_snapshot("day_ahead", self.day_ahead_hour)
         # A restart after a scheduled instant creates one terminal missed/blocked
         # slot; it never backfills with a later observation.
         await self._finalize_missed_slots()
         self._initialized = True
 
+    @property
+    def actual_power_entity(self) -> str | None:
+        """Return the currently-resolved actual PV power entity ID."""
+
+        return self.native_adapter.binding.actual_power_entity
+
+    @property
+    def actual_energy_entity(self) -> str | None:
+        """Return the currently-resolved actual PV energy entity ID."""
+
+        return self.native_adapter.binding.actual_energy_entity
+
     async def _finalize_missed_slots(self) -> None:
         now = datetime.now(UTC)
-        slots = previous_slots_to_finalize(now, tz=self.time_zone)
+        slots = previous_slots_to_finalize(
+            now,
+            tz=self.time_zone,
+            morning_hour=self.morning_hour,
+            day_ahead_hour=self.day_ahead_hour,
+        )
         if not slots:
             return
         existing = await self.hass.async_add_executor_job(
@@ -127,26 +179,40 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             read = await self.native_adapter.async_capture()
             await self.hass.async_add_executor_job(self._write_snapshot_sync, slot, read, now)
 
-    @callback
-    def _morning_timer(self, now_local: datetime) -> None:
-        self.hass.async_create_task(self._capture_scheduled("morning", now_local))
+    def _schedule_next_snapshot(self, snapshot_type: str, hour: int) -> None:
+        """Schedule the next fire in the configured timezone, then re-schedule.
 
-    @callback
-    def _day_ahead_timer(self, now_local: datetime) -> None:
-        self.hass.async_create_task(self._capture_scheduled("day_ahead", now_local))
+        Uses ``async_track_point_in_utc_time`` so the schedule respects
+        ``self.time_zone`` rather than ``hass.config.time_zone``.
+        """
 
-    async def _capture_scheduled(self, snapshot_type: str, now_local: datetime) -> None:
-        scheduled_at_local = now_local.astimezone(self.time_zone).replace(second=0, microsecond=0)
-        # The timer is exact by wall-clock definition; use today's fixed minute.
-        scheduled_at_local = scheduled_at_local.replace(hour=6 if snapshot_type == "morning" else 23, minute=0)
+        next_fire_utc = _next_local_hour_utc(datetime.now(UTC), self.time_zone, hour)
+
+        @callback
+        def _fire(_now: datetime) -> None:
+            self.hass.async_create_task(
+                self._capture_scheduled(snapshot_type, next_fire_utc)
+            )
+            self._schedule_next_snapshot(snapshot_type, hour)
+
+        remove = async_track_point_in_utc_time(self.hass, _fire, next_fire_utc)
+        if snapshot_type == "morning":
+            self._morning_unsub = remove
+        elif snapshot_type == "day_ahead":
+            self._day_ahead_unsub = remove
+
+    async def _capture_scheduled(self, snapshot_type: str, scheduled_at_utc: datetime) -> None:
+        scheduled_at_local = scheduled_at_utc.astimezone(self.time_zone)
         slot = {
             "snapshot_type": snapshot_type,
             "scheduled_at_local": scheduled_at_local,
-            "scheduled_at_utc": scheduled_at_local.astimezone(UTC),
+            "scheduled_at_utc": scheduled_at_utc,
             "target_local_date": scheduled_at_local.date() + timedelta(days=1),
         }
         read = await self.native_adapter.async_capture()
-        await self.hass.async_add_executor_job(self._write_snapshot_sync, slot, read, datetime.now(UTC))
+        await self.hass.async_add_executor_job(
+            self._write_snapshot_sync, slot, read, datetime.now(UTC)
+        )
 
     def _write_snapshot_sync(self, slot: Any, read: NativeRead, now_utc: datetime) -> None:
         """Insert one immutable schedule slot and its child period rows."""
@@ -197,15 +263,18 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _ensure_lineage_sync(self, observation: NativeObservation, now_utc: datetime) -> str:
         model = observation.model
         values = dict(model.values)
-        native_entry_id = self.native_adapter.binding.native_entry_id or ""
+        binding = self.native_adapter.binding
+        native_entry_id = binding.native_entry_id or ""
+        actual_energy_entity = binding.actual_energy_entity or ""
+        actual_power_entity = binding.actual_power_entity or ""
         contract_key = "|".join(
             (
                 native_entry_id,
                 str(model.fingerprint),
                 NATIVE_CONTRACT_VERSION,
                 NATIVE_ADAPTER_VERSION,
-                DEFAULT_ENTITIES[CONF_ACTUAL_ENERGY_TODAY],
-                DEFAULT_ENTITIES[CONF_ACTUAL_POWER],
+                actual_energy_entity,
+                actual_power_entity,
             )
         )
         return self.store.ensure_lineage(
@@ -215,8 +284,8 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "native_entry_id": native_entry_id,
                 "model_fingerprint": model.fingerprint,
                 "model": values,
-                "actual_energy_entity": DEFAULT_ENTITIES[CONF_ACTUAL_ENERGY_TODAY],
-                "actual_power_entity": DEFAULT_ENTITIES[CONF_ACTUAL_POWER],
+                "actual_energy_entity": actual_energy_entity,
+                "actual_power_entity": actual_power_entity,
                 "adapter_version": NATIVE_ADAPTER_VERSION,
                 "native_contract_version": NATIVE_CONTRACT_VERSION,
                 "normalization_version": NORMALIZATION_VERSION,
@@ -231,10 +300,30 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = datetime.now(UTC)
         native_read = await self.native_adapter.async_capture()
         self._last_native_read = native_read
-        power_state = _state_mapping(self.hass.states.get(POWER_ENTITY), POWER_ENTITY)
-        energy_state = _state_mapping(self.hass.states.get(ENERGY_ENTITY), ENERGY_ENTITY)
-        actual_power = validate_actual_state(power_state, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now)
-        actual_energy = validate_actual_state(energy_state, expected_entity_id=ENERGY_ENTITY, kind="energy", now_utc=now)
+        power_entity = self.actual_power_entity or ""
+        energy_entity = self.actual_energy_entity or ""
+        power_state = (
+            _state_mapping(self.hass.states.get(power_entity), power_entity)
+            if power_entity
+            else None
+        )
+        energy_state = (
+            _state_mapping(self.hass.states.get(energy_entity), energy_entity)
+            if energy_entity
+            else None
+        )
+        actual_power = validate_actual_state(
+            power_state,
+            expected_entity_id=power_entity or "",
+            kind="power",
+            now_utc=now,
+        )
+        actual_energy = validate_actual_state(
+            energy_state,
+            expected_entity_id=energy_entity or "",
+            kind="energy",
+            now_utc=now,
+        )
         try:
             payload = await self.hass.async_add_executor_job(
                 self._process_sync,
@@ -558,8 +647,8 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "source_map": {
                 "forecast": "homeassistant.components.forecast_solar.energy.async_get_solar_forecast",
                 "native_config_entry": native_read.binding.native_entry_id,
-                "actual_power": POWER_ENTITY,
-                "actual_energy": ENERGY_ENTITY,
+                "actual_power": native_read.binding.actual_power_entity,
+                "actual_energy": native_read.binding.actual_energy_entity,
                 "vrm": "scalar_context_only",
             },
             "last_updated": now_utc.isoformat(),
@@ -571,11 +660,15 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return dict(data.get("native_forecast_contract") or {})
 
     async def async_unload(self) -> None:
-        for unsubscribe in self._unsubscribers:
+        for unsubscribe in (self._morning_unsub, self._day_ahead_unsub, *self._unsubscribers):
+            if unsubscribe is None:
+                continue
             try:
                 unsubscribe()
             except Exception:  # pragma: no cover - HA lifecycle boundary
                 _LOGGER.debug("Solar Analytics timer unsubscribe failed", exc_info=True)
+        self._morning_unsub = None
+        self._day_ahead_unsub = None
         self._unsubscribers.clear()
         await self.native_adapter.async_unload()
         await self.hass.async_add_executor_job(self.store.close)

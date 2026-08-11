@@ -77,8 +77,10 @@ class SolarAnalyticsBinarySensor(CoordinatorEntity[SolarAnalyticsCoordinator], B
         self.async_write_ha_state()
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
-    coordinator: SolarAnalyticsCoordinator = hass.data[DOMAIN][entry.entry_id]
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    coordinator: SolarAnalyticsCoordinator = entry.runtime_data
     async_add_entities(
         [SolarAnalyticsBinarySensor(coordinator, key, name, device_class) for key, name, device_class in BINARY_DEFINITIONS]
     )

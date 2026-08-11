@@ -143,8 +143,10 @@ class SolarAnalyticsSensor(CoordinatorEntity[SolarAnalyticsCoordinator], SensorE
         self.async_write_ha_state()
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
-    coordinator: SolarAnalyticsCoordinator = hass.data[DOMAIN][entry.entry_id]
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    coordinator: SolarAnalyticsCoordinator = entry.runtime_data
     async_add_entities(
         [SolarAnalyticsSensor(coordinator, key, name, unit, icon) for key, name, unit, icon in SENSOR_DEFINITIONS]
     )

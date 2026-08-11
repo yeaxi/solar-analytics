@@ -9,14 +9,18 @@ import pytest
 from solar_analytics.native import normalize_native_wh_hours, periods_for_local_date
 from solar_analytics.storage_v2 import SolarAnalyticsV2Store
 from solar_analytics.v2_metrics import (
-    ENERGY_ENTITY,
-    POWER_ENTITY,
     compute_accuracy,
     daily_schedule,
     previous_slots_to_finalize,
     underperformance_allowed,
     validate_actual_state,
 )
+
+# Test-only fixture values; the shipping integration resolves these
+# entity IDs at runtime from the user's config-flow selection or from
+# the Home Assistant Energy Dashboard.
+POWER_ENTITY = "sensor.example_pv_power"
+ENERGY_ENTITY = "sensor.example_pv_energy"
 
 UTC = timezone.utc
 

@@ -9,9 +9,9 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 UTC = timezone.utc
+# ``KYIV`` is retained as a convenient default for pure-function tests only;
+# runtime code accepts any ``ZoneInfo`` chosen in the config flow.
 KYIV = ZoneInfo("Europe/Kyiv")
-POWER_ENTITY = "sensor.garage_cerbo_gx_pv_power"
-ENERGY_ENTITY = "sensor.garage_cerbo_gx_pv_energy"
 MAX_ACTUAL_AGE_SECONDS = 15 * 60
 MIN_FORECAST_COVERAGE = 0.95
 MIN_ACTUAL_COVERAGE = 0.90
@@ -31,27 +31,47 @@ def local_datetime(day: date, hour: int, minute: int, *, tz: ZoneInfo = KYIV) ->
     return datetime.combine(day, time(hour, minute), tzinfo=tz)
 
 
-def daily_schedule(day: date, *, tz: ZoneInfo = KYIV) -> tuple[ScheduledSlot, ScheduledSlot]:
-    """Return fixed D-1 06:00 and D-1 23:00 slots for target D=day+1."""
+def daily_schedule(
+    day: date,
+    *,
+    tz: ZoneInfo = KYIV,
+    morning_hour: int = 6,
+    day_ahead_hour: int = 23,
+) -> tuple[ScheduledSlot, ScheduledSlot]:
+    """Return D-1 morning and day-ahead slots for target D=day+1.
+
+    The two hours default to the historical 06:00 / 23:00 baseline but are
+    configurable via the config flow (``morning_snapshot_hour`` and
+    ``day_ahead_snapshot_hour``).
+    """
 
     target = day + timedelta(days=1)
-    morning = local_datetime(day, 6, 0, tz=tz)
-    day_ahead = local_datetime(day, 23, 0, tz=tz)
+    morning = local_datetime(day, morning_hour, 0, tz=tz)
+    day_ahead = local_datetime(day, day_ahead_hour, 0, tz=tz)
     return (
         ScheduledSlot("morning", morning, morning.astimezone(UTC), target),
         ScheduledSlot("day_ahead", day_ahead, day_ahead.astimezone(UTC), target),
     )
 
 
-def previous_slots_to_finalize(now_utc: datetime, *, tz: ZoneInfo = KYIV, lookback_days: int = 2) -> tuple[ScheduledSlot, ...]:
-    """Slots whose instant passed; no backfill is implied by this list."""
+def previous_slots_to_finalize(
+    now_utc: datetime,
+    *,
+    tz: ZoneInfo = KYIV,
+    lookback_days: int = 2,
+    morning_hour: int = 6,
+    day_ahead_hour: int = 23,
+) -> tuple[ScheduledSlot, ...]:
+    """Slots whose scheduled instant is in the past; no backfill implied."""
 
     now = now_utc.astimezone(UTC)
     local_day = now.astimezone(tz).date()
     result: list[ScheduledSlot] = []
     for offset in range(lookback_days, -1, -1):
         day = local_day - timedelta(days=offset)
-        for slot in daily_schedule(day, tz=tz):
+        for slot in daily_schedule(
+            day, tz=tz, morning_hour=morning_hour, day_ahead_hour=day_ahead_hour
+        ):
             if slot.scheduled_at_utc < now:
                 result.append(slot)
     return tuple(result)
