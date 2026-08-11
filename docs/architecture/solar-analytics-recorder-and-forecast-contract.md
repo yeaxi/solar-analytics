@@ -43,11 +43,11 @@ Use a durable table with a unique key:
 (provider, target_date, snapshot_type)
 ```
 
-`day_ahead` targets the next local date at 20:00 Europe/Kyiv. `morning` targets the current local date at sunrise minus 60 minutes, with a documented fixed-time fallback only if sunrise is unavailable. Use an idempotent insert (`INSERT OR IGNORE` or equivalent) so a restart inside the polling window cannot duplicate a snapshot. Store provider, snapshot timestamp, target date, daily scalar, profile (only if real), selected provider parameters, source entity/identifier, and quality flags.
+`day_ahead` targets the next local date at the configured day-ahead snapshot hour in the user-selected analytics timezone (defaults 23:00). `morning` targets the current local date at the configured morning snapshot hour (defaults 06:00). Use an idempotent insert (`INSERT OR IGNORE` or equivalent) so a restart inside the polling window cannot duplicate a snapshot. Store provider, snapshot timestamp, target date, daily scalar, profile (only if real), selected provider parameters, source entity/identifier, and quality flags.
 
 ## 30-minute/DST normalization
 
-Aggregate actual power time-weighted between reports; split segments at interval boundaries. Floor and advance on the UTC timeline, then render the interval timestamp in Europe/Kyiv. This avoids nonexistent or duplicated local wall-clock intervals at DST transitions. Store coverage seconds/ratio and gap reasons; never fill a gap with zero actual production.
+Aggregate actual power time-weighted between reports; split segments at interval boundaries. Floor and advance on the UTC timeline, then render the interval timestamp in the analytics timezone chosen by the user in the config flow (defaults to Home Assistant's own timezone). This avoids nonexistent or duplicated local wall-clock intervals at DST transitions. Store coverage seconds/ratio and gap reasons; never fill a gap with zero actual production.
 
 The interval contract should include:
 

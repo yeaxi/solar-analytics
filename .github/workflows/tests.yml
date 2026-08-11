@@ -36,7 +36,7 @@ jobs:
         run: ruff format --check .
 
       - name: Byte-compile
-        run: python -m compileall -q home_assistant/custom_components/solar_analytics tools scripts
+        run: python -m compileall -q custom_components/solar_analytics tools scripts
 
       - name: Pytest
         run: python -m pytest -q

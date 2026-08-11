@@ -11,24 +11,20 @@ from __future__ import annotations
 import importlib
 import sys
 import types
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-UTC = timezone.utc
-COMPONENT = (
-    Path(__file__).resolve().parents[1]
-    / "home_assistant"
-    / "custom_components"
-    / "solar_analytics"
-)
+COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
 
 
 def _install_entity_stubs() -> None:
     """Install minimal Home Assistant stubs for sensor.py / binary_sensor.py imports."""
 
-    if "homeassistant" in sys.modules and hasattr(sys.modules["homeassistant"], "_solar_analytics_stub"):
+    if "homeassistant" in sys.modules and hasattr(
+        sys.modules["homeassistant"], "_solar_analytics_stub"
+    ):
         return
 
     ha = types.ModuleType("homeassistant")
@@ -307,7 +303,12 @@ def test_binary_sensor_predicates(entities) -> None:
     assert predicates["data_quality_problem"](blocked) is True
     assert predicates["data_quality_problem"]({}) is None
 
-    for neutral in ("near_zero_anomaly", "possible_underperformance", "storm_follow_up", "curtailment_detected"):
+    for neutral in (
+        "near_zero_anomaly",
+        "possible_underperformance",
+        "storm_follow_up",
+        "curtailment_detected",
+    ):
         assert predicates[neutral](ready) is False
         assert predicates[neutral](blocked) is False
         assert predicates[neutral]({}) is False
@@ -333,9 +334,7 @@ def test_expected_diagnostic_entities_are_hidden_by_default(entities) -> None:
     assert "insight_json" in hidden
     assert "heatmap" in hidden
     hidden_binary = {
-        d.key
-        for d in binary_sensor.BINARY_DESCRIPTIONS
-        if not d.entity_registry_enabled_default
+        d.key for d in binary_sensor.BINARY_DESCRIPTIONS if not d.entity_registry_enabled_default
     }
     assert {
         "near_zero_anomaly",

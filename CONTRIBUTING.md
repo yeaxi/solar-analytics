@@ -38,7 +38,7 @@ Run the local checks:
 
 ```bash
 python3 -m pytest -q
-python3 -m compileall -q home_assistant/custom_components/solar_analytics tools scripts
+python3 -m compileall -q custom_components/solar_analytics tools scripts
 ruff check .
 ruff format --check .
 ```
@@ -48,7 +48,7 @@ All four should pass before you push. CI runs the same commands on Python
 
 ## Repository layout
 
-- `home_assistant/custom_components/solar_analytics/` — the shipping
+- `custom_components/solar_analytics/` — the shipping
   integration. This is the sole source of truth for every module.
 - `tests/` — deterministic hermetic tests. No `pytest-homeassistant-custom-component`
   dependency; the HA stack is stubbed at import time when needed.

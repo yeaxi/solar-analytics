@@ -7,21 +7,21 @@ import pytest
 
 from tools.pv_soak_checkpoint import (
     BASELINE_UTC,
+    SCHEMA_VERSION,
     CheckpointValidationError,
     analyze_snapshot,
     write_immutable_snapshot,
 )
 
-
-ENTITY_IDS = [
+FIXED_ENTITY_IDS = [
     "sensor.solar_analytics_native_forecast_solar_source_status",
     "sensor.solar_analytics_analysis_status",
     "sensor.solar_analytics_last_updated",
     "sensor.solar_analytics_solar_forecast_accuracy",
     "sensor.solar_analytics_solar_future_profile",
-    "sensor.garage_cerbo_gx_pv_power",
-    "sensor.garage_cerbo_gx_pv_energy",
 ]
+ACTUAL_POWER = "sensor.example_pv_power"
+ACTUAL_ENERGY = "sensor.example_pv_energy"
 TABLE_NAMES = [
     "v2_lineages",
     "v2_current_profile_cache",
@@ -34,7 +34,7 @@ TABLE_NAMES = [
 
 def collector_payload() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "checkpoint_id": "checkpoint-001",
         "collected_at_utc": "2026-08-05T12:00:00Z",
         "baseline_utc": BASELINE_UTC,
@@ -45,6 +45,7 @@ def collector_payload() -> dict:
             "network_writes": 0,
             "forbidden_actions": [],
         },
+        "actual_pv_entities": {"power": ACTUAL_POWER, "energy": ACTUAL_ENERGY},
         "ha": {
             "core_check": {
                 "status": "PASS",
@@ -65,16 +66,13 @@ def collector_payload() -> dict:
                 "state": "ok",
                 "updated_at_utc": "2026-08-05T11:58:00Z",
             }
-            for entity_id in ENTITY_IDS
+            for entity_id in [*FIXED_ENTITY_IDS, ACTUAL_POWER, ACTUAL_ENERGY]
         },
         "sqlite": {
             "path": "/config/solar_analytics/solar_analytics.sqlite",
             "mode": "ro",
             "integrity": "ok",
-            "tables": {
-                table: {"present": True, "rows": 1}
-                for table in TABLE_NAMES
-            },
+            "tables": {table: {"present": True, "rows": 1} for table in TABLE_NAMES},
             "last_actual_sample": "2026-08-05T11:57:00Z",
         },
     }
@@ -92,7 +90,6 @@ def test_valid_snapshot_is_immutable_and_passes_analysis(tmp_path: Path):
     assert result["physical_calls"] == 0
     assert result["blockers"] == []
 
-    # Repeating the same collection is idempotent and does not overwrite it.
     assert write_immutable_snapshot(collector_payload(), tmp_path) == path
 
 
@@ -101,6 +98,14 @@ def test_unallowlisted_entity_is_rejected(tmp_path: Path):
     payload["entities"]["switch.boiler_socket_1"] = {"state": "on"}
 
     with pytest.raises(CheckpointValidationError, match="unallowlisted entity"):
+        write_immutable_snapshot(payload, tmp_path)
+
+
+def test_actual_pv_entities_must_be_declared_and_populated(tmp_path: Path):
+    payload = collector_payload()
+    payload["actual_pv_entities"] = {"power": "", "energy": ACTUAL_ENERGY}
+
+    with pytest.raises(CheckpointValidationError, match="actual_pv_entities.power"):
         write_immutable_snapshot(payload, tmp_path)
 
 

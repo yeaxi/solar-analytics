@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-import json
 import sqlite3
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
-
 from solar_analytics.native import normalize_native_wh_hours, periods_for_local_date
 from solar_analytics.storage_v2 import SolarAnalyticsV2Store
 from solar_analytics.v2_metrics import (
@@ -21,8 +19,6 @@ from solar_analytics.v2_metrics import (
 # the Home Assistant Energy Dashboard.
 POWER_ENTITY = "sensor.example_pv_power"
 ENERGY_ENTITY = "sensor.example_pv_energy"
-
-UTC = timezone.utc
 
 
 def _payload(*values: tuple[str, float]) -> dict[str, dict[str, float]]:
@@ -118,19 +114,40 @@ def test_actual_contract_rejects_wrong_source_stale_and_restored() -> None:
         "entity_id": POWER_ENTITY,
         "state": "1250",
         "last_updated": now - timedelta(minutes=1),
-        "attributes": {"unit_of_measurement": "W", "device_class": "power", "state_class": "measurement"},
+        "attributes": {
+            "unit_of_measurement": "W",
+            "device_class": "power",
+            "state_class": "measurement",
+        },
     }
-    result = validate_actual_state(valid_power, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now)
+    result = validate_actual_state(
+        valid_power, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now
+    )
     assert result.valid and result.value == 1250
 
     stale = {**valid_power, "last_updated": now - timedelta(minutes=16)}
-    assert validate_actual_state(stale, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now).status == "stale"
+    assert (
+        validate_actual_state(
+            stale, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now
+        ).status
+        == "stale"
+    )
 
     restored = {**valid_power, "attributes": {**valid_power["attributes"], "restored": True}}
-    assert validate_actual_state(restored, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now).reason == "restored_state"
+    assert (
+        validate_actual_state(
+            restored, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now
+        ).reason
+        == "restored_state"
+    )
 
     wrong = {**valid_power, "entity_id": "sensor.other"}
-    assert validate_actual_state(wrong, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now).reason == "entity_id_mismatch"
+    assert (
+        validate_actual_state(
+            wrong, expected_entity_id=POWER_ENTITY, kind="power", now_utc=now
+        ).reason
+        == "entity_id_mismatch"
+    )
 
 
 def test_energy_contract_normalizes_kwh_without_daily_sensor_substitution() -> None:
@@ -139,9 +156,15 @@ def test_energy_contract_normalizes_kwh_without_daily_sensor_substitution() -> N
         "entity_id": ENERGY_ENTITY,
         "state": "12.5",
         "last_updated": now - timedelta(seconds=30),
-        "attributes": {"unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total"},
+        "attributes": {
+            "unit_of_measurement": "kWh",
+            "device_class": "energy",
+            "state_class": "total",
+        },
     }
-    result = validate_actual_state(state, expected_entity_id=ENERGY_ENTITY, kind="energy", now_utc=now)
+    result = validate_actual_state(
+        state, expected_entity_id=ENERGY_ENTITY, kind="energy", now_utc=now
+    )
     assert result.valid and result.value == 12.5
 
 
@@ -239,7 +262,18 @@ def test_v2_storage_migrates_additively_and_slot_is_idempotent(tmp_path) -> None
         exclusion_reason=None,
     )
     assert first[0] == second[0] and first[1] is True and second[1] is False
-    store.insert_snapshot_periods(first[0], [{"interval_start_utc": "2026-08-03T00:00:00+00:00", "interval_end_utc": "2026-08-03T01:00:00+00:00", "energy_wh": 100, "duration_seconds": 3600, "valid": True}])
+    store.insert_snapshot_periods(
+        first[0],
+        [
+            {
+                "interval_start_utc": "2026-08-03T00:00:00+00:00",
+                "interval_end_utc": "2026-08-03T01:00:00+00:00",
+                "energy_wh": 100,
+                "duration_seconds": 3600,
+                "valid": True,
+            }
+        ],
+    )
     assert len(store.snapshot_periods(first[0])) == 1
     store.close()
 
@@ -258,8 +292,24 @@ def test_v2_accuracy_cache_migrates_refresh_rows_and_overwrites_latest(tmp_path)
         db.executemany(
             "INSERT INTO v2_accuracy_results VALUES(?,?,?,?,?,?,?)",
             [
-                ("lineage", "2026-08-03T12:00:00+00:00", 30, 0, 0, "morning-baseline-v2", '{"generation": "old"}'),
-                ("lineage", "2026-08-03T12:05:00+00:00", 30, 1, 0, "morning-baseline-v2", '{"generation": "new"}'),
+                (
+                    "lineage",
+                    "2026-08-03T12:00:00+00:00",
+                    30,
+                    0,
+                    0,
+                    "morning-baseline-v2",
+                    '{"generation": "old"}',
+                ),
+                (
+                    "lineage",
+                    "2026-08-03T12:05:00+00:00",
+                    30,
+                    1,
+                    0,
+                    "morning-baseline-v2",
+                    '{"generation": "new"}',
+                ),
             ],
         )
         db.commit()
@@ -287,9 +337,20 @@ def test_v2_storage_lineage_a_to_b_to_a_is_three_epochs(tmp_path) -> None:
     store = SolarAnalyticsV2Store(tmp_path / "lineage.sqlite")
     store.initialize()
     now = datetime(2026, 8, 3, tzinfo=UTC)
-    metadata = {"native_entry_id": "e", "model_fingerprint": "f", "actual_energy_entity": ENERGY_ENTITY, "actual_power_entity": POWER_ENTITY, "adapter_version": "2", "native_contract_version": "n"}
+    metadata = {
+        "native_entry_id": "e",
+        "model_fingerprint": "f",
+        "actual_energy_entity": ENERGY_ENTITY,
+        "actual_power_entity": POWER_ENTITY,
+        "adapter_version": "2",
+        "native_contract_version": "n",
+    }
     a1 = store.ensure_lineage(contract_key="A", metadata=metadata, now=now)
-    b = store.ensure_lineage(contract_key="B", metadata={**metadata, "model_fingerprint": "f2"}, now=now + timedelta(minutes=1))
+    b = store.ensure_lineage(
+        contract_key="B",
+        metadata={**metadata, "model_fingerprint": "f2"},
+        now=now + timedelta(minutes=1),
+    )
     a2 = store.ensure_lineage(contract_key="A", metadata=metadata, now=now + timedelta(minutes=2))
     assert len({a1, b, a2}) == 3
     assert store.current_lineage_id() == a2
@@ -361,7 +422,10 @@ def test_v2_storage_backup_restore_and_exact_retention_boundary(tmp_path) -> Non
     pruned = store.prune(now=prune_now, retention_days=3650)
     assert pruned["v2_snapshot_slots"] == 1
     remaining = store.list_snapshot_slots()
-    assert [row["target_local_date"] for row in remaining] == [cutoff.isoformat(), (cutoff + timedelta(days=1)).isoformat()]
+    assert [row["target_local_date"] for row in remaining] == [
+        cutoff.isoformat(),
+        (cutoff + timedelta(days=1)).isoformat(),
+    ]
     assert len(store.snapshot_periods(1)) == 0
     assert store.integrity_check() == "ok"
     store.close()

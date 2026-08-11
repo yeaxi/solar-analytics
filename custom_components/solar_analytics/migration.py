@@ -25,7 +25,9 @@ SUPPORTED_ENTRY_FIELDS = frozenset(
 )
 
 
-def migrate_entry_data(entry_version: int, entry_data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+def migrate_entry_data(
+    entry_version: int, entry_data: dict[str, Any]
+) -> tuple[int, dict[str, Any]]:
     """Return the migrated (version, data) for a config entry.
 
     Migration rules:
@@ -50,7 +52,6 @@ def migrate_entry_data(entry_version: int, entry_data: dict[str, Any]) -> tuple[
         data.setdefault("morning_snapshot_hour", DEFAULT_MORNING_HOUR)
         data.setdefault("day_ahead_snapshot_hour", DEFAULT_DAY_AHEAD_HOUR)
 
-    if version < CURRENT_ENTRY_VERSION:
-        version = CURRENT_ENTRY_VERSION
+    version = max(version, CURRENT_ENTRY_VERSION)
 
     return version, data

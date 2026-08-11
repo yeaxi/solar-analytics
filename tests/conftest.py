@@ -1,6 +1,6 @@
 """Shared pytest fixtures for the Solar Analytics test suite.
 
-The custom integration lives under ``home_assistant/custom_components/solar_analytics``.
+The custom integration lives under ``custom_components/solar_analytics``.
 Test modules import it either as ``custom_components.solar_analytics.<module>``
 (with a fake ``homeassistant`` stack installed at test start) or, for the pure
 helpers, as ``solar_analytics.<module>`` via the path shim below.
@@ -11,12 +11,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_COMPONENT_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "home_assistant"
-    / "custom_components"
-    / "solar_analytics"
-)
+_COMPONENT_DIR = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
 
 
 def _register_solar_analytics_path_alias() -> None:

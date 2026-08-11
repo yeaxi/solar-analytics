@@ -12,7 +12,7 @@ Brief description of what this PR changes.
 
 - `python -m pytest -q` output:
 - `ruff check .` clean: yes / no
-- `python -m compileall -q home_assistant/custom_components/solar_analytics tools scripts` clean: yes / no
+- `python -m compileall -q custom_components/solar_analytics tools scripts` clean: yes / no
 - Manual verification steps (if any):
 
 ## Docs

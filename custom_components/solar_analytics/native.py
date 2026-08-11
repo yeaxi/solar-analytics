@@ -6,18 +6,19 @@ has no Home Assistant dependency so the contract can be RED/GREEN tested locally
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 import json
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, time, timedelta
 from math import isfinite
-from statistics import median
-from typing import Any, Mapping
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from .const import VERSION as _INTEGRATION_VERSION
 
-UTC = timezone.utc
+# Convenient default timezone for pure-function tests only. Runtime callers
+# always pass the user-configured ZoneInfo explicitly.
 KYIV = ZoneInfo("Europe/Kyiv")
 NATIVE_CONTRACT_VERSION = "ha_forecast_solar_energy_2026.7"
 NATIVE_ADAPTER_VERSION = _INTEGRATION_VERSION
@@ -144,7 +145,11 @@ def build_native_model_fingerprint(contract: Mapping[str, Any]) -> str | None:
     canonical: dict[str, Any] = {"schema": 1}
     for key in required:
         value = contract.get(key)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(float(value)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not isfinite(float(value))
+        ):
             return None
         canonical[key] = float(value)
     canonical["plane_id"] = str(contract.get("plane_id") or "")
@@ -220,22 +225,36 @@ def normalize_native_wh_hours(
         durations.append(duration)
         if duration <= 0:
             invalid += 1
-            periods.append(NativePeriod(start_utc, end_utc, energy_wh, False, "overlap_or_non_positive_duration"))
+            periods.append(
+                NativePeriod(
+                    start_utc, end_utc, energy_wh, False, "overlap_or_non_positive_duration"
+                )
+            )
         # Forecast.Solar's native ``wh_period`` is sparse overnight. Core keeps
         # the non-midnight zero boundary, so a long zero-Wh cell is an explicit
         # native zero-energy period rather than evidence of a missing cell.
         elif duration > max_period_seconds and energy_wh != 0.0:
             invalid += 1
-            periods.append(NativePeriod(start_utc, end_utc, energy_wh, False, "internal_gap_or_period_too_long"))
+            periods.append(
+                NativePeriod(
+                    start_utc, end_utc, energy_wh, False, "internal_gap_or_period_too_long"
+                )
+            )
         elif energy_wh is None:
             invalid += 1
-            periods.append(NativePeriod(start_utc, end_utc, None, False, "non_numeric_or_negative_energy"))
+            periods.append(
+                NativePeriod(start_utc, end_utc, None, False, "non_numeric_or_negative_energy")
+            )
         else:
             periods.append(NativePeriod(start_utc, end_utc, energy_wh, True))
 
     # A first boundary is intentionally excluded, but all subsequent cells must be
     # valid for a complete native profile. A malformed timestamp/value blocks it.
-    status = "complete" if periods and any(item.valid for item in periods) and invalid == 0 else "blocked"
+    status = (
+        "complete"
+        if periods and any(item.valid for item in periods) and invalid == 0
+        else "blocked"
+    )
     return NativeProfile(
         tuple(periods),
         len(raw),

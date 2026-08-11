@@ -4,7 +4,7 @@ AGENTS.md and the config flow both promise Solar Analytics never calls
 Home Assistant services, never triggers refreshes on other integrations,
 and never opens network sockets to a provider. These tests enforce that
 statically by grepping the shipping source under
-``home_assistant/custom_components/solar_analytics/``. They intentionally
+``custom_components/solar_analytics/``. They intentionally
 run without importing Home Assistant so they cannot be silenced by a stub.
 """
 
@@ -15,12 +15,7 @@ from pathlib import Path
 
 import pytest
 
-COMPONENT = (
-    Path(__file__).resolve().parents[1]
-    / "home_assistant"
-    / "custom_components"
-    / "solar_analytics"
-)
+COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
 
 
 def _source_files() -> list[Path]:
@@ -61,7 +56,9 @@ def test_read_only_invariant_forbids_pattern(forbidden: re.Pattern[str], reason:
     for path in _source_files():
         for lineno, line in enumerate(_source_text(path).splitlines(), 1):
             if forbidden.search(line):
-                hits.append(f"{path.relative_to(COMPONENT.parent.parent.parent)}:{lineno}: {line.strip()}")
+                hits.append(
+                    f"{path.relative_to(COMPONENT.parent.parent.parent)}:{lineno}: {line.strip()}"
+                )
     assert not hits, reason + "\n" + "\n".join(hits)
 
 
@@ -72,11 +69,7 @@ def test_no_service_registration() -> None:
     assert not services_yaml.exists(), "services.yaml would declare user-callable actions"
 
     register_pattern = re.compile(r"\bhass\.services\.async_register\(")
-    hits = [
-        path.name
-        for path in _source_files()
-        if register_pattern.search(_source_text(path))
-    ]
+    hits = [path.name for path in _source_files() if register_pattern.search(_source_text(path))]
     assert not hits, f"unexpected async_register call sites: {hits}"
 
 

@@ -13,8 +13,8 @@ inspects Home Assistant state and the Energy Dashboard configuration.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import logging
+from collections.abc import Mapping
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -79,18 +79,18 @@ def _user_schema(hass: HomeAssistant, defaults: Mapping[str, Any] | None) -> vol
         )
 
     if default_actual_energy := defaults.get(CONF_ACTUAL_ENERGY_TODAY):
-        schema[
-            vol.Optional(CONF_ACTUAL_ENERGY_TODAY, default=default_actual_energy)
-        ] = EntitySelector(EntitySelectorConfig(domain="sensor", device_class="energy"))
+        schema[vol.Optional(CONF_ACTUAL_ENERGY_TODAY, default=default_actual_energy)] = (
+            EntitySelector(EntitySelectorConfig(domain="sensor", device_class="energy"))
+        )
     else:
         schema[vol.Optional(CONF_ACTUAL_ENERGY_TODAY)] = EntitySelector(
             EntitySelectorConfig(domain="sensor", device_class="energy")
         )
 
     if default_native_entry := defaults.get(CONF_NATIVE_FORECAST_ENTRY_ID):
-        schema[
-            vol.Optional(CONF_NATIVE_FORECAST_ENTRY_ID, default=default_native_entry)
-        ] = ConfigEntrySelector(ConfigEntrySelectorConfig(integration="forecast_solar"))
+        schema[vol.Optional(CONF_NATIVE_FORECAST_ENTRY_ID, default=default_native_entry)] = (
+            ConfigEntrySelector(ConfigEntrySelectorConfig(integration="forecast_solar"))
+        )
     else:
         schema[vol.Optional(CONF_NATIVE_FORECAST_ENTRY_ID)] = ConfigEntrySelector(
             ConfigEntrySelectorConfig(integration="forecast_solar")
@@ -205,9 +205,7 @@ async def _validate_user_input(
     else:
         cleaned[CONF_MORNING_HOUR] = morning
 
-    day_ahead = _validate_snapshot_hour(
-        user_input.get(CONF_DAY_AHEAD_HOUR, DEFAULT_DAY_AHEAD_HOUR)
-    )
+    day_ahead = _validate_snapshot_hour(user_input.get(CONF_DAY_AHEAD_HOUR, DEFAULT_DAY_AHEAD_HOUR))
     if day_ahead is None:
         errors[CONF_DAY_AHEAD_HOUR] = "invalid_snapshot_hour"
     else:
@@ -237,9 +235,7 @@ class SolarAnalyticsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_reconfigure(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Allow the user to change any config-flow field after setup."""
 
         entry = self._get_reconfigure_entry()
@@ -269,9 +265,7 @@ class SolarAnalyticsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class SolarAnalyticsOptionsFlow(config_entries.OptionsFlow):
     """Options are intentionally empty; any real change creates a new lineage."""
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
             return self.async_create_entry(title="", data={})
         return self.async_show_form(step_id="init", data_schema=vol.Schema({}))

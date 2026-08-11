@@ -3,14 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-
-MODULE_PATH = (
-    Path(__file__).parents[1]
-    / "home_assistant"
-    / "custom_components"
-    / "solar_analytics"
-    / "migration.py"
-)
+MODULE_PATH = Path(__file__).parents[1] / "custom_components" / "solar_analytics" / "migration.py"
 
 
 def _load_migration_module():

@@ -16,23 +16,24 @@ import json
 import os
 import re
 import stat
-import sys
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 BASELINE_UTC = "2026-08-03T19:28:33Z"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
-ALLOWED_ENTITY_IDS = frozenset(
+# The fixed status entities Solar Analytics always publishes. Any Solar
+# Analytics install exposes exactly these five; every soak envelope must
+# include them.
+FIXED_STATUS_ENTITIES = frozenset(
     {
         "sensor.solar_analytics_native_forecast_solar_source_status",
         "sensor.solar_analytics_analysis_status",
         "sensor.solar_analytics_last_updated",
         "sensor.solar_analytics_solar_forecast_accuracy",
         "sensor.solar_analytics_solar_future_profile",
-        "sensor.garage_cerbo_gx_pv_power",
-        "sensor.garage_cerbo_gx_pv_energy",
     }
 )
 REQUIRED_TABLES = frozenset(
@@ -67,7 +68,7 @@ def _timestamp(value: Any, name: str) -> str:
         parsed = datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError as exc:
         raise CheckpointValidationError(f"{name} is not a valid UTC timestamp") from exc
-    if parsed.tzinfo != timezone.utc:
+    if parsed.tzinfo != UTC:
         raise CheckpointValidationError(f"{name} must be UTC")
     return value
 
@@ -79,7 +80,9 @@ def _digest(value: Any, name: str) -> str:
 
 
 def _canonical_bytes(payload: Mapping[str, Any]) -> bytes:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
 
 
 def _payload_digest(payload: Mapping[str, Any]) -> str:
@@ -123,7 +126,9 @@ def validate_collector_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
 
     logs = _mapping(ha.get("logs"), "ha.logs")
     if set(logs) != REQUIRED_LOGS:
-        raise CheckpointValidationError("ha.logs must contain exactly the allowlisted fresh log streams")
+        raise CheckpointValidationError(
+            "ha.logs must contain exactly the allowlisted fresh log streams"
+        )
     for name in REQUIRED_LOGS:
         log = _mapping(logs[name], f"ha.logs.{name}")
         if not isinstance(log.get("fresh"), bool):
@@ -132,13 +137,24 @@ def validate_collector_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
             raise CheckpointValidationError(f"ha.logs.{name}.mutation_mentions must be 0")
         _digest(log.get("excerpt_digest"), f"ha.logs.{name}.excerpt_digest")
 
+    actual_pv = _mapping(root.get("actual_pv_entities"), "actual_pv_entities")
+    for key in ("power", "energy"):
+        value = actual_pv.get(key)
+        if not isinstance(value, str) or not value:
+            raise CheckpointValidationError(
+                f"actual_pv_entities.{key} must be a non-empty entity id"
+            )
+    allowed_entities = FIXED_STATUS_ENTITIES | {actual_pv["power"], actual_pv["energy"]}
+
     entities = _mapping(root.get("entities"), "entities")
-    unexpected_entities = set(entities) - ALLOWED_ENTITY_IDS
-    missing_entities = ALLOWED_ENTITY_IDS - set(entities)
+    unexpected_entities = set(entities) - allowed_entities
+    missing_entities = allowed_entities - set(entities)
     if unexpected_entities:
         raise CheckpointValidationError("unallowlisted entity: " + sorted(unexpected_entities)[0])
     if missing_entities:
-        raise CheckpointValidationError("missing allowlisted entity: " + sorted(missing_entities)[0])
+        raise CheckpointValidationError(
+            "missing allowlisted entity: " + sorted(missing_entities)[0]
+        )
     for entity_id, entity in entities.items():
         entity_obj = _mapping(entity, f"entities.{entity_id}")
         _timestamp(entity_obj.get("updated_at_utc"), f"entities.{entity_id}.updated_at_utc")
@@ -157,7 +173,9 @@ def validate_collector_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         if obj.get("present") is not True:
             raise CheckpointValidationError(f"sqlite table not present: {table}")
         if not isinstance(obj.get("rows"), int) or obj.get("rows") < 0:
-            raise CheckpointValidationError(f"sqlite.tables.{table}.rows must be a non-negative integer")
+            raise CheckpointValidationError(
+                f"sqlite.tables.{table}.rows must be a non-negative integer"
+            )
 
     return json.loads(json.dumps(root, ensure_ascii=False))
 
@@ -208,7 +226,9 @@ def analyze_snapshot(snapshot: Mapping[str, Any] | str | Path) -> dict[str, Any]
         "status": "PASS" if not blockers else "BLOCKED",
         "scope": "PV-only",
         "checkpoint_id": payload.get("checkpoint_id") if isinstance(payload, Mapping) else None,
-        "collected_at_utc": payload.get("collected_at_utc") if isinstance(payload, Mapping) else None,
+        "collected_at_utc": payload.get("collected_at_utc")
+        if isinstance(payload, Mapping)
+        else None,
         "baseline_utc": payload.get("baseline_utc") if isinstance(payload, Mapping) else None,
         "physical_calls": None,
         "mutations": None,
@@ -229,7 +249,9 @@ def analyze_snapshot(snapshot: Mapping[str, Any] | str | Path) -> dict[str, Any]
             except (TypeError, ValueError):
                 expected_digest = None
             if stored_digest != expected_digest:
-                result["blockers"].append("snapshot_digest does not match canonical snapshot content")
+                result["blockers"].append(
+                    "snapshot_digest does not match canonical snapshot content"
+                )
         result["status"] = "PASS" if not result["blockers"] else "BLOCKED"
     return result
 
@@ -238,7 +260,9 @@ def write_immutable_snapshot(payload: Mapping[str, Any], output_dir: str | Path)
     """Validate and write a content-addressed, no-overwrite JSON snapshot."""
     validated = validate_collector_payload(payload)
     digest = _payload_digest(validated)
-    stamped = datetime.fromisoformat(validated["collected_at_utc"][:-1] + "+00:00").strftime("%Y%m%dT%H%M%SZ")
+    stamped = datetime.fromisoformat(validated["collected_at_utc"][:-1] + "+00:00").strftime(
+        "%Y%m%dT%H%M%SZ"
+    )
     filename = f"checkpoint_{stamped}_{digest[7:19]}.json"
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
@@ -250,10 +274,10 @@ def write_immutable_snapshot(payload: Mapping[str, Any], output_dir: str | Path)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     try:
         fd = os.open(path, flags, 0o444)
-    except FileExistsError:
+    except FileExistsError as err:
         existing = json.loads(path.read_text(encoding="utf-8"))
         if existing.get("snapshot_digest") != digest:
-            raise CheckpointValidationError("immutable snapshot filename collision")
+            raise CheckpointValidationError("immutable snapshot filename collision") from err
         return path
     try:
         with os.fdopen(fd, "wb") as handle:
@@ -266,6 +290,9 @@ def write_immutable_snapshot(payload: Mapping[str, Any], output_dir: str | Path)
 
 
 def _template() -> dict[str, Any]:
+    example_power = "sensor.example_pv_power"
+    example_energy = "sensor.example_pv_energy"
+    entities = sorted(FIXED_STATUS_ENTITIES | {example_power, example_energy})
     return {
         "schema_version": SCHEMA_VERSION,
         "checkpoint_id": "replace-me",
@@ -278,6 +305,7 @@ def _template() -> dict[str, Any]:
             "network_writes": 0,
             "forbidden_actions": [],
         },
+        "actual_pv_entities": {"power": example_power, "energy": example_energy},
         "ha": {
             "core_check": {
                 "status": "PASS",
@@ -285,13 +313,17 @@ def _template() -> dict[str, Any]:
                 "output_digest": "sha256:" + "0" * 64,
             },
             "logs": {
-                name: {"fresh": True, "mutation_mentions": 0, "excerpt_digest": "sha256:" + "0" * 64}
+                name: {
+                    "fresh": True,
+                    "mutation_mentions": 0,
+                    "excerpt_digest": "sha256:" + "0" * 64,
+                }
                 for name in sorted(REQUIRED_LOGS)
             },
         },
         "entities": {
             entity_id: {"state": None, "updated_at_utc": "YYYY-MM-DDTHH:MM:SSZ"}
-            for entity_id in sorted(ALLOWED_ENTITY_IDS)
+            for entity_id in entities
         },
         "sqlite": {
             "path": "/config/solar_analytics/solar_analytics.sqlite",
@@ -316,8 +348,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "template":
-        args.output.write_text(json.dumps(_template(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(json.dumps({"status": "TEMPLATE_WRITTEN", "path": str(args.output)}, ensure_ascii=False))
+        args.output.write_text(
+            json.dumps(_template(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        print(
+            json.dumps({"status": "TEMPLATE_WRITTEN", "path": str(args.output)}, ensure_ascii=False)
+        )
         return 0
 
     if args.command == "snapshot":

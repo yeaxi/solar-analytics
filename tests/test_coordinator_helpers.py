@@ -11,19 +11,13 @@ from __future__ import annotations
 import importlib.util
 import sys
 import types
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 
-UTC = timezone.utc
-COMPONENT = (
-    Path(__file__).resolve().parents[1]
-    / "home_assistant"
-    / "custom_components"
-    / "solar_analytics"
-)
+COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
 
 
 def _load_coordinator_helpers():

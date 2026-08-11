@@ -12,12 +12,11 @@ import argparse
 import json
 import sqlite3
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-UTC = timezone.utc
 KYIV = ZoneInfo("Europe/Kyiv")
 ENTITIES = {
     "actual_power": "sensor.energy_solar_production_power",
@@ -63,7 +62,9 @@ def actual_daily(con: sqlite3.Connection, metadata_id: int) -> list[dict[str, An
         "SELECT start_ts,mean FROM statistics_short_term WHERE metadata_id=? AND mean IS NOT NULL ORDER BY start_ts",
         (metadata_id,),
     ).fetchall()
-    grouped: dict[str, dict[str, Any]] = defaultdict(lambda: {"energy_kwh": 0.0, "rows": 0, "gaps": 0})
+    grouped: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"energy_kwh": 0.0, "rows": 0, "gaps": 0}
+    )
     previous: float | None = None
     for start_ts, mean in rows:
         value = parse_number(mean)
@@ -103,20 +104,26 @@ def nearest_day_ahead(history: list[tuple[datetime, str]]) -> list[dict[str, Any
             if timestamp.hour == 20 and timestamp.minute > 10:
                 continue
             target = timestamp.date() + timedelta(days=1)
-            distance = abs((timestamp - timestamp.replace(hour=20, minute=0, second=0, microsecond=0)).total_seconds())
+            distance = abs(
+                (
+                    timestamp - timestamp.replace(hour=20, minute=0, second=0, microsecond=0)
+                ).total_seconds()
+            )
             candidates[target.isoformat()].append((distance, timestamp, state))
     result = []
     for target, values in sorted(candidates.items()):
         _, timestamp, state = min(values, key=lambda item: item[0])
         value = parse_number(state)
-        result.append({
-            "target_date": target,
-            "snapshot_timestamp": timestamp.isoformat(),
-            "forecast_kwh": value,
-            "snapshot_type": "day_ahead",
-            "classification": "reconstructed_from_archived_state_at_snapshot_window",
-            "state_was_archived": True,
-        })
+        result.append(
+            {
+                "target_date": target,
+                "snapshot_timestamp": timestamp.isoformat(),
+                "forecast_kwh": value,
+                "snapshot_type": "day_ahead",
+                "classification": "reconstructed_from_archived_state_at_snapshot_window",
+                "state_was_archived": True,
+            }
+        )
     return result
 
 
@@ -135,7 +142,9 @@ def main() -> None:
         "forbidden_current_forecast_applied": False,
         "metadata": metadata,
         "statistics_metadata": statistics_metadata,
-        "actual_daily": actual_daily(con, statistics_metadata[ENTITIES["actual_power"]]) if ENTITIES["actual_power"] in statistics_metadata else [],
+        "actual_daily": actual_daily(con, statistics_metadata[ENTITIES["actual_power"]])
+        if ENTITIES["actual_power"] in statistics_metadata
+        else [],
         "reconstructed_snapshots": {},
         "missing": [],
         "notes": [
@@ -149,7 +158,9 @@ def main() -> None:
         if entity not in metadata:
             output["missing"].append(entity)
             continue
-        output["reconstructed_snapshots"][provider_key] = nearest_day_ahead(state_history(con, metadata[entity]))
+        output["reconstructed_snapshots"][provider_key] = nearest_day_ahead(
+            state_history(con, metadata[entity])
+        )
     con.close()
     print(json.dumps(output, ensure_ascii=False, separators=(",", ":")))
 

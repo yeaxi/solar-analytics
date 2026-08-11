@@ -47,14 +47,3 @@ DEFAULT_DAY_AHEAD_HOUR: Final[int] = 23
 
 SNAPSHOT_DAY_AHEAD: Final[str] = "day_ahead"
 SNAPSHOT_MORNING: Final[str] = "morning"
-
-# Legacy defaults kept temporarily during the reusability refactor. Later
-# commits in this branch replace them with user-selectable config-flow values
-# (actual PV entities become required selectors; timezone defaults to
-# hass.config.time_zone).
-_LEGACY_DEFAULT_TIME_ZONE: Final[str] = "Europe/Kyiv"
-DEFAULT_TIME_ZONE: Final[str] = _LEGACY_DEFAULT_TIME_ZONE
-DEFAULT_ENTITIES: Final[dict[str, str]] = {
-    CONF_ACTUAL_POWER: "sensor.garage_cerbo_gx_pv_power",
-    CONF_ACTUAL_ENERGY_TODAY: "sensor.garage_cerbo_gx_pv_energy",
-}

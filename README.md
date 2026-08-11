@@ -34,7 +34,7 @@ You can override the auto-detected sensors in the config flow if you want to poi
 
 ### Manual copy
 
-1. Copy `home_assistant/custom_components/solar_analytics/` into your Home Assistant `config/custom_components/` directory.
+1. Copy `custom_components/solar_analytics/` into your Home Assistant `config/custom_components/` directory.
 2. Restart Home Assistant.
 
 ## Configuration
@@ -83,7 +83,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
 python3 -m pytest -q                                                    # unit tests
-python3 -m compileall -q home_assistant/custom_components/solar_analytics tools scripts
+python3 -m compileall -q custom_components/solar_analytics tools scripts
 ruff check .
 ruff format --check .
 ```
@@ -93,7 +93,7 @@ The test suite is deterministic, hermetic (no network, no HA install required), 
 ## Project layout
 
 ```
-home_assistant/custom_components/solar_analytics/   # the integration (source of truth)
+custom_components/solar_analytics/   # the integration (source of truth)
 tests/                                              # deterministic local tests
 tools/                                              # local read-only analyzers (soak checkpoint)
 scripts/                                            # local read-only report scripts

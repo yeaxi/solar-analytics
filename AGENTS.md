@@ -10,11 +10,11 @@ Every user configures which sensors and which Forecast.Solar entry the integrati
 
 - Home Assistant native Forecast.Solar Energy binding (via `homeassistant.components.forecast_solar.energy.async_get_solar_forecast`) is the sole forecast-profile source.
 - Actual PV telemetry comes from **user-selectable** entities in the config flow: an actual PV power sensor (`device_class=power`, unit W or kW) and an actual PV energy counter (`device_class=energy`, unit Wh or kWh). If the user leaves these blank, they are auto-detected from the Energy Dashboard's single solar source.
-- The `home_assistant/custom_components/solar_analytics/native_adapter.py` module is the sole boundary that touches Home Assistant's Forecast.Solar internals. It must not silently substitute another source. A cached scalar is not a valid substitute for a timestamped forecast profile.
+- The `custom_components/solar_analytics/native_adapter.py` module is the sole boundary that touches Home Assistant's Forecast.Solar internals. It must not silently substitute another source. A cached scalar is not a valid substitute for a timestamped forecast profile.
 
 ## Read-only boundary (non-negotiable)
 
-While developing, testing, or validating this project, do not call Home Assistant services, reload config entries, restart Home Assistant, trigger refreshes on the native Forecast.Solar coordinator, call `estimate()`, or call provider HTTP endpoints. `tests/test_read_only_invariant.py` enforces this at the source-code level for the shipping integration; treat any addition of `hass.services.async_call`, `async_refresh()`, `estimate(`, `requests.*`, or `time.sleep` inside `home_assistant/custom_components/solar_analytics/` as a class-A regression.
+While developing, testing, or validating this project, do not call Home Assistant services, reload config entries, restart Home Assistant, trigger refreshes on the native Forecast.Solar coordinator, call `estimate()`, or call provider HTTP endpoints. `tests/test_read_only_invariant.py` enforces this at the source-code level for the shipping integration; treat any addition of `hass.services.async_call`, `async_refresh()`, `estimate(`, `requests.*`, or `time.sleep` inside `custom_components/solar_analytics/` as a class-A regression.
 
 ## Evidence contract
 

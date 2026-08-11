@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone, timedelta
 import importlib
 import sys
 import types
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-
-UTC = timezone.utc
-COMPONENT = Path(__file__).parents[1] / "home_assistant" / "custom_components" / "solar_analytics"
+COMPONENT = Path(__file__).parents[1] / "custom_components" / "solar_analytics"
 
 
 def _install_fake_ha(helper, *, root_version: bool = True):
@@ -27,6 +25,7 @@ def _install_fake_ha(helper, *, root_version: bool = True):
     forecast_energy = types.ModuleType("homeassistant.components.forecast_solar.energy")
     config_entries.ConfigEntry = object
     core.HomeAssistant = object
+
     async def async_get_manager(hass):
         return hass.manager
 
@@ -86,6 +85,7 @@ class PlainCoordinatorRuntime(FakeNativeRuntime):
     def __init__(self) -> None:
         super().__init__()
         self.last_update_success_time = None
+
 
 class FakeNativeEntry:
     domain = "forecast_solar"
@@ -246,7 +246,9 @@ def test_native_adapter_reads_core_version_from_const_module() -> None:
 
     _install_fake_ha(helper, root_version=False)
     module = importlib.import_module("custom_components.solar_analytics.native_adapter")
-    adapter = module.ForecastSolarNativeAdapter(FakeHass(FakeNativeEntry(), types.SimpleNamespace(data={})), FakeEntry())
+    adapter = module.ForecastSolarNativeAdapter(
+        FakeHass(FakeNativeEntry(), types.SimpleNamespace(data={})), FakeEntry()
+    )
     assert adapter._core_version_supported() is True
 
 
@@ -417,9 +419,7 @@ def test_native_adapter_ignores_callback_from_replaced_runtime() -> None:
             ]
         }
     )
-    adapter = module.ForecastSolarNativeAdapter(
-        FakeHass(native_entry, manager), FakeEntry()
-    )
+    adapter = module.ForecastSolarNativeAdapter(FakeHass(native_entry, manager), FakeEntry())
 
     async def run():
         await adapter.async_initialize()
@@ -465,9 +465,7 @@ def test_native_adapter_does_not_admit_failed_listener_callback() -> None:
             ]
         }
     )
-    adapter = module.ForecastSolarNativeAdapter(
-        FakeHass(native_entry, manager), FakeEntry()
-    )
+    adapter = module.ForecastSolarNativeAdapter(FakeHass(native_entry, manager), FakeEntry())
 
     async def run():
         await adapter.async_initialize()

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from math import isfinite
-from typing import Any, Mapping
+from typing import Any
 from zoneinfo import ZoneInfo
 
-UTC = timezone.utc
 # ``KYIV`` is retained as a convenient default for pure-function tests only;
 # runtime code accepts any ``ZoneInfo`` chosen in the config flow.
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -88,7 +88,9 @@ class ActualState:
 
     @property
     def valid(self) -> bool:
-        return self.status == "valid" and self.value is not None and self.observed_at_utc is not None
+        return (
+            self.status == "valid" and self.value is not None and self.observed_at_utc is not None
+        )
 
 
 def _as_utc(value: Any) -> datetime | None:
@@ -132,38 +134,60 @@ def validate_actual_state(
         return ActualState(expected_entity_id, None, None, None, "invalid", "entity_id_mismatch")
     raw_state = state.get("state")
     if str(raw_state).lower() in {"unknown", "unavailable", "none", ""}:
-        return ActualState(expected_entity_id, None, None, None, "invalid", "unknown_or_unavailable")
+        return ActualState(
+            expected_entity_id, None, None, None, "invalid", "unknown_or_unavailable"
+        )
     attrs = state.get("attributes") if isinstance(state.get("attributes"), Mapping) else {}
     if attrs.get("restored") is True or state.get("restored") is True:
         return ActualState(expected_entity_id, None, None, None, "invalid", "restored_state")
     observed = _as_utc(state.get("last_updated"))
     if observed is None:
-        return ActualState(expected_entity_id, None, None, None, "invalid", "observation_timestamp_missing")
+        return ActualState(
+            expected_entity_id, None, None, None, "invalid", "observation_timestamp_missing"
+        )
     age = (now_utc.astimezone(UTC) - observed).total_seconds()
     if age < -300:
-        return ActualState(expected_entity_id, None, None, observed, "invalid", "observation_in_future")
+        return ActualState(
+            expected_entity_id, None, None, observed, "invalid", "observation_in_future"
+        )
     if age > max_age_seconds:
-        return ActualState(expected_entity_id, None, None, observed, "stale", f"age_seconds:{age:.1f}")
+        return ActualState(
+            expected_entity_id, None, None, observed, "stale", f"age_seconds:{age:.1f}"
+        )
     value = _number(raw_state)
     if value is None or value < 0:
-        return ActualState(expected_entity_id, None, None, observed, "invalid", "non_numeric_or_negative")
+        return ActualState(
+            expected_entity_id, None, None, observed, "invalid", "non_numeric_or_negative"
+        )
     unit = str(attrs.get("unit_of_measurement") or "")
     device_class = attrs.get("device_class")
     state_class = attrs.get("state_class")
     if kind == "power":
         if device_class != "power" or state_class != "measurement" or unit not in {"W", "kW"}:
-            return ActualState(expected_entity_id, None, unit, observed, "invalid", "power_contract_mismatch")
+            return ActualState(
+                expected_entity_id, None, unit, observed, "invalid", "power_contract_mismatch"
+            )
         normalized = value * 1000.0 if unit == "kW" else value
     elif kind == "energy":
-        if device_class != "energy" or state_class not in {"total", "total_increasing"} or unit not in {"kWh", "Wh"}:
-            return ActualState(expected_entity_id, None, unit, observed, "invalid", "energy_contract_mismatch")
+        if (
+            device_class != "energy"
+            or state_class not in {"total", "total_increasing"}
+            or unit not in {"kWh", "Wh"}
+        ):
+            return ActualState(
+                expected_entity_id, None, unit, observed, "invalid", "energy_contract_mismatch"
+            )
         normalized = value / 1000.0 if unit == "Wh" else value
     else:
-        return ActualState(expected_entity_id, None, unit, observed, "invalid", "unknown_actual_kind")
+        return ActualState(
+            expected_entity_id, None, unit, observed, "invalid", "unknown_actual_kind"
+        )
     return ActualState(expected_entity_id, normalized, unit, observed, "valid")
 
 
-def compute_accuracy(daily_rows: list[Mapping[str, Any]], *, today_local: date, window_days: int = ROLLING_DAYS) -> dict[str, Any]:
+def compute_accuracy(
+    daily_rows: list[Mapping[str, Any]], *, today_local: date, window_days: int = ROLLING_DAYS
+) -> dict[str, Any]:
     """Compute paired-day accuracy only from valid morning-baseline days."""
 
     start = today_local - timedelta(days=window_days)
@@ -191,7 +215,9 @@ def compute_accuracy(daily_rows: list[Mapping[str, Any]], *, today_local: date, 
         "forecast_kwh": forecast_total if eligible else None,
         "bias_kwh": signed_total if eligible else None,
         "wape": absolute_total / actual_total if eligible and actual_total > 0 else None,
-        "confidence": "high" if ready and valid_days >= 21 else ("medium" if ready else "insufficient"),
+        "confidence": "high"
+        if ready and valid_days >= 21
+        else ("medium" if ready else "insufficient"),
     }
 
 

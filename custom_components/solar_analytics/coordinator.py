@@ -9,12 +9,13 @@ integration.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
 import functools
 import json
 import logging
+from collections.abc import Mapping
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
@@ -23,17 +24,14 @@ from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
-    CONF_ACTUAL_ENERGY_TODAY,
-    CONF_ACTUAL_POWER,
     CONF_DAY_AHEAD_HOUR,
     CONF_MORNING_HOUR,
     CONF_TIME_ZONE,
     DEFAULT_DAY_AHEAD_HOUR,
     DEFAULT_MORNING_HOUR,
-    DOMAIN,
     NAME,
 )
-from .native import NATIVE_ADAPTER_VERSION, NATIVE_CONTRACT_VERSION, NativePeriod
+from .native import NATIVE_ADAPTER_VERSION, NATIVE_CONTRACT_VERSION
 from .native_adapter import ForecastSolarNativeAdapter, NativeObservation, NativeRead
 from .storage_v2 import METRIC_VERSION, NORMALIZATION_VERSION, SolarAnalyticsV2Store, StorageError
 from .v2_metrics import (
@@ -47,7 +45,6 @@ from .v2_metrics import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-UTC = timezone.utc
 UPDATE_INTERVAL = timedelta(minutes=5)
 
 
@@ -101,7 +98,9 @@ def _state_mapping(state: Any, entity_id: str) -> dict[str, Any] | None:
         "state": getattr(state, "state", None),
         "attributes": dict(getattr(state, "attributes", {}) or {}),
         "last_updated": getattr(state, "last_updated", None),
-        "restored": getattr(state, "attributes", {}).get("restored") if getattr(state, "attributes", None) else False,
+        "restored": getattr(state, "attributes", {}).get("restored")
+        if getattr(state, "attributes", None)
+        else False,
     }
 
 
@@ -111,9 +110,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
-        self.time_zone = ZoneInfo(
-            str(entry.data.get(CONF_TIME_ZONE) or _default_time_zone(hass))
-        )
+        self.time_zone = ZoneInfo(str(entry.data.get(CONF_TIME_ZONE) or _default_time_zone(hass)))
         self.morning_hour = int(entry.data.get(CONF_MORNING_HOUR, DEFAULT_MORNING_HOUR))
         self.day_ahead_hour = int(entry.data.get(CONF_DAY_AHEAD_HOUR, DEFAULT_DAY_AHEAD_HOUR))
         storage_path = Path(hass.config.path("solar_analytics", "solar_analytics.sqlite"))
@@ -171,7 +168,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         existing = await self.hass.async_add_executor_job(
             functools.partial(self.store.list_snapshot_slots, source_kind="native")
         )
-        existing_keys = {(row.get("snapshot_type"), row.get("scheduled_at_utc")) for row in existing}
+        existing_keys = {
+            (row.get("snapshot_type"), row.get("scheduled_at_utc")) for row in existing
+        }
         for slot in slots:
             key = (slot.snapshot_type, slot.scheduled_at_utc.isoformat())
             if key in existing_keys:
@@ -190,9 +189,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         @callback
         def _fire(_now: datetime) -> None:
-            self.hass.async_create_task(
-                self._capture_scheduled(snapshot_type, next_fire_utc)
-            )
+            self.hass.async_create_task(self._capture_scheduled(snapshot_type, next_fire_utc))
             self._schedule_next_snapshot(snapshot_type, hour)
 
         remove = async_track_point_in_utc_time(self.hass, _fire, next_fire_utc)
@@ -217,9 +214,17 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _write_snapshot_sync(self, slot: Any, read: NativeRead, now_utc: datetime) -> None:
         """Insert one immutable schedule slot and its child period rows."""
 
-        snapshot_type = slot.snapshot_type if hasattr(slot, "snapshot_type") else slot["snapshot_type"]
-        scheduled_at_utc = slot.scheduled_at_utc if hasattr(slot, "scheduled_at_utc") else slot["scheduled_at_utc"]
-        target_local_date = slot.target_local_date if hasattr(slot, "target_local_date") else slot["target_local_date"]
+        snapshot_type = (
+            slot.snapshot_type if hasattr(slot, "snapshot_type") else slot["snapshot_type"]
+        )
+        scheduled_at_utc = (
+            slot.scheduled_at_utc if hasattr(slot, "scheduled_at_utc") else slot["scheduled_at_utc"]
+        )
+        target_local_date = (
+            slot.target_local_date
+            if hasattr(slot, "target_local_date")
+            else slot["target_local_date"]
+        )
         observation = read.observation if read is not None else None
         admissible = bool(
             read is not None
@@ -245,10 +250,14 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             snapshot_type=snapshot_type,
             scheduled_at_utc=scheduled_at_utc,
             target_local_date=target_local_date,
-            timezone_name=SNAPSHOT_TIMEZONE,
+            timezone_name=str(self.time_zone),
             observed_at_utc=observation.observed_at_utc if admissible and observation else None,
-            native_updated_at_utc=observation.native_updated_at_utc if admissible and observation else None,
-            observation_sequence=observation.observation_sequence if admissible and observation else None,
+            native_updated_at_utc=observation.native_updated_at_utc
+            if admissible and observation
+            else None,
+            observation_sequence=observation.observation_sequence
+            if admissible and observation
+            else None,
             payload_sha256=observation.payload_sha256 if admissible and observation else None,
             adapter_version=NATIVE_ADAPTER_VERSION,
             normalization_version=NORMALIZATION_VERSION,
@@ -374,7 +383,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if observation is not None and lineage_id:
             self._process_recent_intervals_sync(lineage_id, now_utc)
         daily_rows = self._process_daily_sync(lineage_id, now_utc) if lineage_id else []
-        accuracy = compute_accuracy(daily_rows, today_local=now_utc.astimezone(self.time_zone).date())
+        accuracy = compute_accuracy(
+            daily_rows, today_local=now_utc.astimezone(self.time_zone).date()
+        )
         if lineage_id:
             self.store.save_accuracy(
                 lineage_id=lineage_id,
@@ -402,26 +413,48 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         key = f"energy_counter_anchor:{local_date}"
         anchor = self.store.get_runtime(key)
         if not isinstance(anchor, Mapping):
-            self.store.set_runtime(key, {"value_kwh": actual_energy.value, "observed_at_utc": _iso(actual_energy.observed_at_utc)})
+            self.store.set_runtime(
+                key,
+                {
+                    "value_kwh": actual_energy.value,
+                    "observed_at_utc": _iso(actual_energy.observed_at_utc),
+                },
+            )
             return "anchor_created"
         try:
             anchor_value = float(anchor["value_kwh"])
             delta = float(actual_energy.value) - anchor_value
             anchor_time = _parse_iso(anchor.get("observed_at_utc")) or now_utc
         except (KeyError, TypeError, ValueError):
-            self.store.set_runtime(key, {"value_kwh": actual_energy.value, "observed_at_utc": _iso(actual_energy.observed_at_utc)})
+            self.store.set_runtime(
+                key,
+                {
+                    "value_kwh": actual_energy.value,
+                    "observed_at_utc": _iso(actual_energy.observed_at_utc),
+                },
+            )
             return "anchor_reset_invalid"
         if delta < -0.05:
-            self.store.set_runtime(key, {"value_kwh": actual_energy.value, "observed_at_utc": _iso(actual_energy.observed_at_utc)})
+            self.store.set_runtime(
+                key,
+                {
+                    "value_kwh": actual_energy.value,
+                    "observed_at_utc": _iso(actual_energy.observed_at_utc),
+                },
+            )
             self.store.set_runtime(f"reconciliation_status:{local_date}", "counter_reset_detected")
             return "counter_reset_detected"
-        integral = self.store.integrate_accumulators(anchor_time, actual_energy.observed_at_utc or now_utc)
+        integral = self.store.integrate_accumulators(
+            anchor_time, actual_energy.observed_at_utc or now_utc
+        )
         if integral.get("energy_wh") is None:
             status = "counter_only_no_power_coverage"
         else:
             power_kwh = float(integral["energy_wh"]) / 1000.0
             tolerance = max(0.1, 0.10 * max(abs(delta), abs(power_kwh), 1.0))
-            status = "reconciled" if abs(delta - power_kwh) <= tolerance else "reconciliation_mismatch"
+            status = (
+                "reconciled" if abs(delta - power_kwh) <= tolerance else "reconciliation_mismatch"
+            )
         self.store.set_runtime(f"reconciliation_status:{local_date}", status)
         return status
 
@@ -444,8 +477,12 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 end = _parse_iso(row.get("interval_end_utc"))
                 if start is None or end is None or end > now_utc or end <= start:
                     continue
-                day_start = datetime.combine(local_day, time.min, tzinfo=self.time_zone).astimezone(UTC)
-                day_end = datetime.combine(local_day + timedelta(days=1), time.min, tzinfo=self.time_zone).astimezone(UTC)
+                day_start = datetime.combine(local_day, time.min, tzinfo=self.time_zone).astimezone(
+                    UTC
+                )
+                day_end = datetime.combine(
+                    local_day + timedelta(days=1), time.min, tzinfo=self.time_zone
+                ).astimezone(UTC)
                 # A period crossing a local day boundary is not silently assigned.
                 if start < day_start or end > day_end:
                     continue
@@ -453,10 +490,19 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 actual = self.store.integrate_accumulators(start, end)
                 covered = min(float(actual.get("covered_seconds") or 0.0), duration)
                 actual_energy = actual.get("energy_wh")
-                actual_valid = covered >= duration * MIN_ACTUAL_COVERAGE and actual_energy is not None
+                actual_valid = (
+                    covered >= duration * MIN_ACTUAL_COVERAGE and actual_energy is not None
+                )
                 paired_valid = actual_valid
-                reason = "paired" if paired_valid else ("actual_gap" if covered > 0 else "actual_missing")
-                interval_reconciliation = self.store.get_runtime(f"reconciliation_status:{local_day.isoformat()}") or "not_observed"
+                reason = (
+                    "paired"
+                    if paired_valid
+                    else ("actual_gap" if covered > 0 else "actual_missing")
+                )
+                interval_reconciliation = (
+                    self.store.get_runtime(f"reconciliation_status:{local_day.isoformat()}")
+                    or "not_observed"
+                )
                 self.store.upsert_interval(
                     {
                         "lineage_id": lineage_id,
@@ -464,7 +510,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "interval_end_utc": end.isoformat(),
                         "target_local_date": local_day.isoformat(),
                         "forecast_energy_wh": float(row["energy_wh"]),
-                        "actual_energy_wh": float(actual_energy) if actual_energy is not None and actual_valid else None,
+                        "actual_energy_wh": float(actual_energy)
+                        if actual_energy is not None and actual_valid
+                        else None,
                         "eligible_seconds": duration,
                         "actual_covered_seconds": covered,
                         "forecast_valid": True,
@@ -475,7 +523,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     }
                 )
 
-    def _process_daily_sync(self, lineage_id: str | None, now_utc: datetime) -> list[dict[str, Any]]:
+    def _process_daily_sync(
+        self, lineage_id: str | None, now_utc: datetime
+    ) -> list[dict[str, Any]]:
         if not lineage_id:
             return []
         today = now_utc.astimezone(self.time_zone).date()
@@ -489,23 +539,63 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             if not bool(slot.get("admissible")):
                 self.store.upsert_daily(
-                    {"lineage_id": lineage_id, "local_date": local_day.isoformat(), "morning_slot_id": slot["snapshot_slot_id"], "reason": "morning_snapshot_not_admissible"}
+                    {
+                        "lineage_id": lineage_id,
+                        "local_date": local_day.isoformat(),
+                        "morning_slot_id": slot["snapshot_slot_id"],
+                        "reason": "morning_snapshot_not_admissible",
+                    }
                 )
                 continue
-            intervals = [row for row in self.store.list_intervals(lineage_id=lineage_id, local_date=local_day.isoformat()) if row["interval_end_utc"] <= now_utc.isoformat()]
-            day_seconds = (datetime.combine(local_day + timedelta(days=1), time.min, tzinfo=self.time_zone) - datetime.combine(local_day, time.min, tzinfo=self.time_zone)).total_seconds()
-            forecast_seconds = sum(float(row["eligible_seconds"] or 0.0) for row in intervals if row["forecast_valid"])
+            intervals = [
+                row
+                for row in self.store.list_intervals(
+                    lineage_id=lineage_id, local_date=local_day.isoformat()
+                )
+                if row["interval_end_utc"] <= now_utc.isoformat()
+            ]
+            day_seconds = (
+                datetime.combine(local_day + timedelta(days=1), time.min, tzinfo=self.time_zone)
+                - datetime.combine(local_day, time.min, tzinfo=self.time_zone)
+            ).total_seconds()
+            forecast_seconds = sum(
+                float(row["eligible_seconds"] or 0.0) for row in intervals if row["forecast_valid"]
+            )
             actual_seconds = sum(float(row["actual_covered_seconds"] or 0.0) for row in intervals)
-            paired_seconds = sum(float(row["eligible_seconds"] or 0.0) for row in intervals if row["paired_valid"])
-            forecast_kwh = sum(float(row["forecast_energy_wh"] or 0.0) for row in intervals if row["forecast_valid"]) / 1000.0
-            actual_kwh = sum(float(row["actual_energy_wh"] or 0.0) for row in intervals if row["paired_valid"]) / 1000.0
+            paired_seconds = sum(
+                float(row["eligible_seconds"] or 0.0) for row in intervals if row["paired_valid"]
+            )
+            forecast_kwh = (
+                sum(
+                    float(row["forecast_energy_wh"] or 0.0)
+                    for row in intervals
+                    if row["forecast_valid"]
+                )
+                / 1000.0
+            )
+            actual_kwh = (
+                sum(
+                    float(row["actual_energy_wh"] or 0.0)
+                    for row in intervals
+                    if row["paired_valid"]
+                )
+                / 1000.0
+            )
             forecast_coverage = forecast_seconds / day_seconds if day_seconds else 0.0
             actual_coverage = actual_seconds / day_seconds if day_seconds else 0.0
             paired_coverage = paired_seconds / day_seconds if day_seconds else 0.0
-            valid = forecast_coverage >= MIN_FORECAST_COVERAGE and actual_coverage >= MIN_ACTUAL_COVERAGE and paired_coverage >= MIN_ACTUAL_COVERAGE and bool(intervals)
+            valid = (
+                forecast_coverage >= MIN_FORECAST_COVERAGE
+                and actual_coverage >= MIN_ACTUAL_COVERAGE
+                and paired_coverage >= MIN_ACTUAL_COVERAGE
+                and bool(intervals)
+            )
             reason = "valid_paired_day" if valid else "coverage_below_gate"
             signed = actual_kwh - forecast_kwh if valid else None
-            reconciliation_status = self.store.get_runtime(f"reconciliation_status:{local_day.isoformat()}") or "not_observed"
+            reconciliation_status = (
+                self.store.get_runtime(f"reconciliation_status:{local_day.isoformat()}")
+                or "not_observed"
+            )
             self.store.upsert_daily(
                 {
                     "lineage_id": lineage_id,
@@ -523,7 +613,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "reconciliation_status": reconciliation_status,
                 }
             )
-        return self.store.list_daily(lineage_id=lineage_id, since=(today - timedelta(days=ROLLING_DAYS + 2)).isoformat())
+        return self.store.list_daily(
+            lineage_id=lineage_id, since=(today - timedelta(days=ROLLING_DAYS + 2)).isoformat()
+        )
 
     def _build_payload(
         self,
@@ -586,7 +678,11 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status = native_read.status
             validity_reason = native_read.reason or native_read.status
         elif not actual_power.valid or not actual_energy.valid:
-            status = "actual_source_stale" if actual_power.status == "stale" or actual_energy.status == "stale" else "actual_source_unavailable"
+            status = (
+                "actual_source_stale"
+                if actual_power.status == "stale" or actual_energy.status == "stale"
+                else "actual_source_unavailable"
+            )
             validity_reason = actual_power.reason or actual_energy.reason or status
         elif accuracy.get("accuracy_ready"):
             status = "ready"
@@ -619,7 +715,8 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "status": status,
             "analysis_valid": bool(accuracy.get("accuracy_ready")),
-            "forecast_profile_analysis_allowed": native_read.status == "ok" and observation is not None,
+            "forecast_profile_analysis_allowed": native_read.status == "ok"
+            and observation is not None,
             "native_source_status": native_read.status,
             "native_forecast_contract": native_contract,
             "actual_power_w": actual_power.value if actual_power.valid else None,
@@ -631,7 +728,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "curtailment_reason": None,
             "last_insight": validity_reason,
             "insight": insight,
-            "hermes_json": json.dumps(insight, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            "hermes_json": json.dumps(
+                insight, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ),
             "daily_points": daily_points,
             "future_points": future_points,
             "heatmap": {"status": "unavailable", "x": [], "y": [], "z": [], "customdata": []},
@@ -640,7 +739,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "actual_coverage": latest_daily.get("actual_coverage"),
             "paired_coverage": latest_daily.get("paired_coverage"),
             "lineage_id": lineage_id,
-            "native_observation_sequence": observation.observation_sequence if observation else None,
+            "native_observation_sequence": observation.observation_sequence
+            if observation
+            else None,
             "native_payload_sha256": observation.payload_sha256 if observation else None,
             "native_observed_at": _iso(observation.observed_at_utc) if observation else None,
             "native_updated_at": _iso(observation.native_updated_at_utc) if observation else None,

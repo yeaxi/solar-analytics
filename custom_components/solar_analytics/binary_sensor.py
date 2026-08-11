@@ -102,9 +102,7 @@ BINARY_DESCRIPTIONS: tuple[SolarAnalyticsBinarySensorEntityDescription, ...] = (
 )
 
 
-class SolarAnalyticsBinarySensor(
-    CoordinatorEntity[SolarAnalyticsCoordinator], BinarySensorEntity
-):
+class SolarAnalyticsBinarySensor(CoordinatorEntity[SolarAnalyticsCoordinator], BinarySensorEntity):
     """Expose one boolean from the coordinator payload."""
 
     _attr_has_entity_name = True
@@ -158,6 +156,5 @@ async def async_setup_entry(
 ) -> None:
     coordinator: SolarAnalyticsCoordinator = entry.runtime_data
     async_add_entities(
-        SolarAnalyticsBinarySensor(coordinator, description)
-        for description in BINARY_DESCRIPTIONS
+        SolarAnalyticsBinarySensor(coordinator, description) for description in BINARY_DESCRIPTIONS
     )

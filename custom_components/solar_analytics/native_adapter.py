@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import importlib
 import inspect
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -19,15 +19,12 @@ from .const import (
     CONF_NATIVE_FORECAST_ENTRY_ID,
 )
 from .native import (
-    NATIVE_ADAPTER_VERSION,
-    NATIVE_CONTRACT_VERSION,
     NativeProfile,
     build_native_model_fingerprint,
     normalize_native_wh_hours,
 )
 
 _LOGGER = logging.getLogger(__name__)
-UTC = timezone.utc
 # Minimum supported Home Assistant Core version. The native adapter also
 # feature-detects the Forecast.Solar helper signature and the presence of
 # ``wh_period`` on the coordinator runtime, so a patch-level bump within the
@@ -149,7 +146,10 @@ class ForecastSolarNativeAdapter:
                 # rejected rather than silently rebound.
                 self.hass.config_entries.async_update_entry(
                     self.entry,
-                    data={**self.entry.data, CONF_NATIVE_FORECAST_ENTRY_ID: self.binding.native_entry_id},
+                    data={
+                        **self.entry.data,
+                        CONF_NATIVE_FORECAST_ENTRY_ID: self.binding.native_entry_id,
+                    },
                 )
             self._attach_native_listener()
         return self.binding
@@ -183,9 +183,7 @@ class ForecastSolarNativeAdapter:
         actual_energy_entity: str | None = user_actual_energy
 
         need_energy_lookup = (
-            native_entry_id is None
-            or actual_power_entity is None
-            or actual_energy_entity is None
+            native_entry_id is None or actual_power_entity is None or actual_energy_entity is None
         )
 
         if need_energy_lookup:
@@ -195,7 +193,7 @@ class ForecastSolarNativeAdapter:
                     "homeassistant.components.energy.data",
                 )
                 manager = await energy_data.async_get_manager(self.hass)
-            except Exception as err:  # noqa: BLE001 - capability boundary is fail-closed
+            except Exception as err:
                 return NativeBinding(
                     "unsupported_native_contract",
                     reason=f"energy_manager_unavailable:{type(err).__name__}",
@@ -363,7 +361,7 @@ class ForecastSolarNativeAdapter:
                 importlib.import_module,
                 "homeassistant.components.forecast_solar.energy",
             )
-            helper = getattr(module, "async_get_solar_forecast")
+            helper = module.async_get_solar_forecast
         except (ImportError, AttributeError):
             return None
         if not callable(helper):
@@ -403,7 +401,9 @@ class ForecastSolarNativeAdapter:
             get_planes = getattr(native_entry, "get_subentries_of_type", None)
             planes = list(get_planes("plane")) if callable(get_planes) else []
             if len(planes) != 1:
-                return NativeModel("unsupported_native_contract", {}, None, f"plane_count:{len(planes)}")
+                return NativeModel(
+                    "unsupported_native_contract", {}, None, f"plane_count:{len(planes)}"
+                )
             plane = planes[0]
             plane_data = dict(getattr(plane, "data", {}) or {})
             values: dict[str, Any] = {
@@ -418,15 +418,21 @@ class ForecastSolarNativeAdapter:
                 "evening_damping": options.get("damping_evening", 0.0),
                 "plane_id": getattr(plane, "subentry_id", None),
                 # Only presence is observed; credential values never enter data.
-                "auth_mode": "authenticated" if "api_key" in options or "api_key" in data else "public",
+                "auth_mode": "authenticated"
+                if "api_key" in options or "api_key" in data
+                else "public",
             }
             fingerprint = build_native_model_fingerprint(values)
             if fingerprint is None:
-                return NativeModel("unsupported_native_contract", values, None, "invalid_model_values")
+                return NativeModel(
+                    "unsupported_native_contract", values, None, "invalid_model_values"
+                )
             values["model_fingerprint_sha256"] = fingerprint
             return NativeModel("ok", values, fingerprint)
         except (AttributeError, TypeError, ValueError):
-            return NativeModel("unsupported_native_contract", {}, None, "native_entry_shape_invalid")
+            return NativeModel(
+                "unsupported_native_contract", {}, None, "native_entry_shape_invalid"
+            )
 
     async def async_capture(self) -> NativeRead:
         """Capture a successful native observation already held by the coordinator."""
@@ -436,7 +442,9 @@ class ForecastSolarNativeAdapter:
             return NativeRead(self.binding.status, self.binding, reason=self.binding.reason)
         helper = await self._async_get_helper()
         if helper is None:
-            return NativeRead("unsupported_native_contract", self.binding, reason="helper_import_or_signature")
+            return NativeRead(
+                "unsupported_native_contract", self.binding, reason="helper_import_or_signature"
+            )
         native_entry, runtime = self._native_entry_and_runtime()
         if native_entry is None or runtime is None:
             return NativeRead("native_source_unavailable", self.binding, reason="entry_unloaded")
@@ -447,27 +455,41 @@ class ForecastSolarNativeAdapter:
         runtime_data = getattr(runtime, "data", None)
         wh_period = getattr(runtime_data, "wh_period", None)
         if not isinstance(wh_period, Mapping):
-            return NativeRead("unsupported_native_contract", self.binding, reason="runtime_wh_period_missing")
+            return NativeRead(
+                "unsupported_native_contract", self.binding, reason="runtime_wh_period_missing"
+            )
         if getattr(runtime, "last_update_success", False) is not True:
-            return NativeRead("native_source_unavailable", self.binding, reason="last_update_not_successful")
+            return NativeRead(
+                "native_source_unavailable", self.binding, reason="last_update_not_successful"
+            )
         # Forecast.Solar's pinned coordinator is a plain DataUpdateCoordinator;
         # last_update_success_time is not part of its contract. A retained
         # runtime payload is not admissible until a native listener callback has
         # been observed by this adapter after setup.
         native_updated_at = self._native_listener_observed_at_utc
         if native_updated_at is None:
-            return NativeRead("native_source_unavailable", self.binding, reason="native_update_not_observed")
+            return NativeRead(
+                "native_source_unavailable", self.binding, reason="native_update_not_observed"
+            )
         now = datetime.now(UTC)
         age = (now - native_updated_at).total_seconds()
         if age < -300 or age > MAX_OBSERVATION_AGE.total_seconds():
-            return NativeRead("native_source_stale", self.binding, reason=f"native_update_age_seconds:{age:.1f}")
+            return NativeRead(
+                "native_source_stale", self.binding, reason=f"native_update_age_seconds:{age:.1f}"
+            )
         try:
             payload = await helper(self.hass, self.binding.native_entry_id)
-        except Exception as err:  # noqa: BLE001 - source boundary is diagnostic
+        except Exception as err:
             _LOGGER.debug("Native Forecast.Solar helper failed: %s", err)
-            return NativeRead("native_source_unavailable", self.binding, reason=f"helper_error:{type(err).__name__}")
+            return NativeRead(
+                "native_source_unavailable",
+                self.binding,
+                reason=f"helper_error:{type(err).__name__}",
+            )
         if not isinstance(payload, Mapping):
-            return NativeRead("unsupported_native_contract", self.binding, reason="helper_payload_not_mapping")
+            return NativeRead(
+                "unsupported_native_contract", self.binding, reason="helper_payload_not_mapping"
+            )
         profile = normalize_native_wh_hours(payload)
         if profile.status != "complete" or profile.payload_sha256 is None:
             reason_names = sorted(
