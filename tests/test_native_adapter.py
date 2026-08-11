@@ -594,3 +594,103 @@ def test_native_adapter_imports_helper_off_event_loop() -> None:
     imported_modules = [args[0] for _name, args in executor_calls]
     assert imported_modules.count("homeassistant.components.energy.data") == 3
     assert imported_modules.count("homeassistant.components.forecast_solar.energy") == 1
+
+
+def test_native_adapter_prefers_user_configured_entities_over_energy_dashboard() -> None:
+    """User overrides in entry.data must beat auto-detection from the Energy Dashboard."""
+
+    async def helper(hass, config_entry_id):
+        return {"wh_hours": {"2026-08-03T00:00:00+00:00": 0, "2026-08-03T01:00:00+00:00": 1}}
+
+    _install_fake_ha(helper)
+    module = importlib.import_module("custom_components.solar_analytics.native_adapter")
+    native_entry = FakeNativeEntry()
+    manager = types.SimpleNamespace(
+        data={
+            "energy_sources": [
+                {
+                    "type": "solar",
+                    "stat_energy_from": "sensor.dashboard_energy",
+                    "stat_rate": "sensor.dashboard_power",
+                    "config_entry_solar_forecast": ["dashboard-entry"],
+                }
+            ]
+        }
+    )
+    hass = FakeHass(native_entry, manager)
+    entry = FakeEntry()
+    entry.data = {
+        "native_forecast_entry_id": "native-1",
+        "actual_power_entity": "sensor.user_power",
+        "actual_energy_today_entity": "sensor.user_energy",
+    }
+    adapter = module.ForecastSolarNativeAdapter(hass, entry)
+
+    async def run():
+        return await adapter.async_resolve_binding()
+
+    binding = asyncio.run(run())
+    assert binding.status == "ok"
+    assert binding.native_entry_id == "native-1"
+    assert binding.actual_power_entity == "sensor.user_power"
+    assert binding.actual_energy_entity == "sensor.user_energy"
+
+
+def test_native_adapter_falls_back_to_energy_dashboard_when_user_omits_fields() -> None:
+    """Empty entry.data must trigger Energy-Dashboard auto-detection for every field."""
+
+    async def helper(hass, config_entry_id):
+        return {"wh_hours": {"2026-08-03T00:00:00+00:00": 0, "2026-08-03T01:00:00+00:00": 1}}
+
+    _install_fake_ha(helper)
+    module = importlib.import_module("custom_components.solar_analytics.native_adapter")
+    native_entry = FakeNativeEntry()
+    manager = types.SimpleNamespace(
+        data={
+            "energy_sources": [
+                {
+                    "type": "solar",
+                    "stat_energy_from": "sensor.autodetect_energy",
+                    "stat_rate": "sensor.autodetect_power",
+                    "config_entry_solar_forecast": ["native-1"],
+                }
+            ]
+        }
+    )
+    hass = FakeHass(native_entry, manager)
+    adapter = module.ForecastSolarNativeAdapter(hass, FakeEntry())
+
+    async def run():
+        return await adapter.async_resolve_binding()
+
+    binding = asyncio.run(run())
+    assert binding.status == "ok"
+    assert binding.native_entry_id == "native-1"
+    assert binding.actual_power_entity == "sensor.autodetect_power"
+    assert binding.actual_energy_entity == "sensor.autodetect_energy"
+
+
+def test_native_adapter_accepts_supported_minimum_and_rejects_older_core() -> None:
+    """Version check is now a >= minimum, not an exact string match."""
+
+    async def helper(hass, config_entry_id):
+        return {"wh_hours": {"2026-08-03T01:00:00+00:00": 1}}
+
+    _install_fake_ha(helper)
+    module = importlib.import_module("custom_components.solar_analytics.native_adapter")
+    adapter = module.ForecastSolarNativeAdapter(
+        FakeHass(FakeNativeEntry(), types.SimpleNamespace(data={})), FakeEntry()
+    )
+
+    import homeassistant.const as ha_const
+
+    ha_const.__version__ = "2026.7.9"
+    assert adapter._core_version_supported() is True
+
+    ha_const.__version__ = "2026.8.0"
+    assert adapter._core_version_supported() is True
+
+    ha_const.__version__ = "2026.6.5"
+    assert adapter._core_version_supported() is False
+
+    ha_const.__version__ = "2026.7.4"

@@ -17,7 +17,6 @@ from .const import (
     CONF_ACTUAL_ENERGY_TODAY,
     CONF_ACTUAL_POWER,
     CONF_NATIVE_FORECAST_ENTRY_ID,
-    DEFAULT_ENTITIES,
 )
 from .native import (
     NATIVE_ADAPTER_VERSION,
@@ -29,8 +28,37 @@ from .native import (
 
 _LOGGER = logging.getLogger(__name__)
 UTC = timezone.utc
-TARGET_CORE_VERSION = "2026.7.4"
+# Minimum supported Home Assistant Core version. The native adapter also
+# feature-detects the Forecast.Solar helper signature and the presence of
+# ``wh_period`` on the coordinator runtime, so a patch-level bump within the
+# supported line does not require a new integration release.
+TARGET_CORE_MIN_VERSION: tuple[int, ...] = (2026, 7)
 MAX_OBSERVATION_AGE = timedelta(hours=2)
+
+
+def _version_tuple(raw: str) -> tuple[int, ...]:
+    """Best-effort ``"YYYY.M[.P][suffix]"`` -> ``(YYYY, M, P)`` conversion.
+
+    Returns ``(0,)`` for anything unparseable, which makes the caller treat
+    the running HA as older than any supported minimum.
+    """
+
+    if not raw:
+        return (0,)
+    stripped = raw.split("+", 1)[0].split("-", 1)[0]
+    parts: list[int] = []
+    for token in stripped.split("."):
+        digits = ""
+        for character in token:
+            if character.isdigit():
+                digits += character
+            else:
+                break
+        if digits:
+            parts.append(int(digits))
+        else:
+            break
+    return tuple(parts) if parts else (0,)
 
 
 @dataclass(frozen=True)
@@ -127,44 +155,113 @@ class ForecastSolarNativeAdapter:
         return self.binding
 
     async def async_resolve_binding(self) -> NativeBinding:
-        """Read Energy preferences and enforce one exact Forecast.Solar entry."""
+        """Resolve which Forecast.Solar entry and actual-PV sensors to bind to.
 
-        try:
-            energy_data = await self.hass.async_add_executor_job(
-                importlib.import_module,
-                "homeassistant.components.energy.data",
+        Precedence:
+
+        1. Values chosen by the user in the config flow (``entry.data`` keys
+           ``native_forecast_entry_id``, ``actual_power_entity``,
+           ``actual_energy_today_entity``).
+        2. The single solar source configured in the Home Assistant Energy
+           Dashboard: its ``config_entry_solar_forecast[0]`` becomes the
+           Forecast.Solar entry, its ``stat_rate`` becomes the actual power
+           sensor, its ``stat_energy_from`` becomes the actual energy sensor.
+
+        The user-supplied entities are treated as canonical: they do not need
+        to match the Energy Dashboard. When both a user override and the
+        Energy Dashboard suggest a Forecast.Solar entry and they disagree, we
+        prefer the user's choice (the config flow is the deliberate answer).
+        """
+
+        entry_data = self.entry.data or {}
+        user_native_entry = entry_data.get(CONF_NATIVE_FORECAST_ENTRY_ID) or None
+        user_actual_power = entry_data.get(CONF_ACTUAL_POWER) or None
+        user_actual_energy = entry_data.get(CONF_ACTUAL_ENERGY_TODAY) or None
+
+        native_entry_id: str | None = user_native_entry
+        actual_power_entity: str | None = user_actual_power
+        actual_energy_entity: str | None = user_actual_energy
+
+        need_energy_lookup = (
+            native_entry_id is None
+            or actual_power_entity is None
+            or actual_energy_entity is None
+        )
+
+        if need_energy_lookup:
+            try:
+                energy_data = await self.hass.async_add_executor_job(
+                    importlib.import_module,
+                    "homeassistant.components.energy.data",
+                )
+                manager = await energy_data.async_get_manager(self.hass)
+            except Exception as err:  # noqa: BLE001 - capability boundary is fail-closed
+                return NativeBinding(
+                    "unsupported_native_contract",
+                    reason=f"energy_manager_unavailable:{type(err).__name__}",
+                )
+
+            preferences = getattr(manager, "data", None)
+            sources = (
+                preferences.get("energy_sources") if isinstance(preferences, Mapping) else None
             )
-            manager = await energy_data.async_get_manager(self.hass)
-        except Exception as err:  # noqa: BLE001 - capability boundary is fail-closed
-            return NativeBinding("unsupported_native_contract", reason=f"energy_manager_unavailable:{type(err).__name__}")
+            if not isinstance(sources, list):
+                return NativeBinding("binding_unavailable", reason="energy_sources_missing")
+            solar_sources = [
+                source
+                for source in sources
+                if isinstance(source, Mapping) and source.get("type") == "solar"
+            ]
+            if len(solar_sources) != 1:
+                return NativeBinding(
+                    "binding_ambiguous", reason=f"solar_source_count:{len(solar_sources)}"
+                )
+            source = solar_sources[0]
+            entry_ids = source.get("config_entry_solar_forecast")
+            if (
+                not isinstance(entry_ids, list)
+                or len(entry_ids) != 1
+                or not isinstance(entry_ids[0], str)
+            ):
+                return NativeBinding(
+                    "binding_ambiguous",
+                    reason="config_entry_solar_forecast_not_exactly_one",
+                )
+            energy_dashboard_native_entry_id = entry_ids[0]
+            if native_entry_id is None:
+                native_entry_id = energy_dashboard_native_entry_id
+            if actual_energy_entity is None:
+                actual_energy_entity = source.get("stat_energy_from")
+            if actual_power_entity is None:
+                actual_power_entity = source.get("stat_rate")
 
-        preferences = getattr(manager, "data", None)
-        sources = preferences.get("energy_sources") if isinstance(preferences, Mapping) else None
-        if not isinstance(sources, list):
-            return NativeBinding("binding_unavailable", reason="energy_sources_missing")
-        solar_sources = [source for source in sources if isinstance(source, Mapping) and source.get("type") == "solar"]
-        if len(solar_sources) != 1:
-            return NativeBinding("binding_ambiguous", reason=f"solar_source_count:{len(solar_sources)}")
-        source = solar_sources[0]
-        entry_ids = source.get("config_entry_solar_forecast")
-        if not isinstance(entry_ids, list) or len(entry_ids) != 1 or not isinstance(entry_ids[0], str):
-            return NativeBinding("binding_ambiguous", reason="config_entry_solar_forecast_not_exactly_one")
-        native_entry_id = entry_ids[0]
-        stored = self.entry.data.get(CONF_NATIVE_FORECAST_ENTRY_ID)
-        if stored and stored != native_entry_id:
-            return NativeBinding("binding_changed", native_entry_id=native_entry_id, reason="stored_binding_mismatch")
-        if source.get("stat_energy_from") != DEFAULT_ENTITIES[CONF_ACTUAL_ENERGY_TODAY]:
-            return NativeBinding("canonical_actual_mismatch", native_entry_id=native_entry_id, reason="energy_entity_mismatch")
-        if source.get("stat_rate") != DEFAULT_ENTITIES[CONF_ACTUAL_POWER]:
-            return NativeBinding("canonical_actual_mismatch", native_entry_id=native_entry_id, reason="power_entity_mismatch")
+        if not native_entry_id or not isinstance(native_entry_id, str):
+            return NativeBinding("binding_unavailable", reason="native_entry_id_missing")
+        if not actual_energy_entity or not isinstance(actual_energy_entity, str):
+            return NativeBinding(
+                "canonical_actual_mismatch",
+                native_entry_id=native_entry_id,
+                reason="actual_energy_entity_missing",
+            )
+        if not actual_power_entity or not isinstance(actual_power_entity, str):
+            return NativeBinding(
+                "canonical_actual_mismatch",
+                native_entry_id=native_entry_id,
+                reason="actual_power_entity_missing",
+            )
+
         config_entry = self.hass.config_entries.async_get_entry(native_entry_id)
         if config_entry is None or getattr(config_entry, "domain", None) != "forecast_solar":
-            return NativeBinding("native_entry_unavailable", native_entry_id=native_entry_id, reason="entry_missing_or_wrong_domain")
+            return NativeBinding(
+                "native_entry_unavailable",
+                native_entry_id=native_entry_id,
+                reason="entry_missing_or_wrong_domain",
+            )
         return NativeBinding(
             "ok",
             native_entry_id=native_entry_id,
-            actual_energy_entity=DEFAULT_ENTITIES[CONF_ACTUAL_ENERGY_TODAY],
-            actual_power_entity=DEFAULT_ENTITIES[CONF_ACTUAL_POWER],
+            actual_energy_entity=actual_energy_entity,
+            actual_power_entity=actual_power_entity,
         )
 
     def _attach_native_listener(self) -> None:
@@ -232,14 +329,31 @@ class ForecastSolarNativeAdapter:
         return parsed.astimezone(UTC)
 
     def _core_version_supported(self) -> bool:
+        """Return ``True`` iff running on a supported HA Core minor line.
+
+        We compare the running ``homeassistant.const.__version__`` against a
+        minimum (``TARGET_CORE_MIN_VERSION``, currently ``2026.7``). Every
+        Forecast.Solar internal we depend on is also feature-detected at
+        capture time, so patch releases within the supported minor line do
+        not require a new Solar Analytics release.
+        """
+
         try:
             constants = importlib.import_module("homeassistant.const")
             version = str(getattr(constants, "__version__", ""))
         except Exception:  # pragma: no cover - import boundary
             return False
-        return version == TARGET_CORE_VERSION
+        return _version_tuple(version) >= TARGET_CORE_MIN_VERSION
 
     async def _async_get_helper(self) -> Any | None:
+        """Return the Forecast.Solar Energy helper, or ``None`` on incompatibility.
+
+        Feature detection accepts any callable whose first two positional
+        parameters can accept ``(hass, config_entry_id)``. Later signature
+        changes that keep those two leading positional parameters therefore
+        do not break Solar Analytics.
+        """
+
         if not self._core_version_supported():
             return None
         if self._helper is not None:
@@ -250,13 +364,24 @@ class ForecastSolarNativeAdapter:
                 "homeassistant.components.forecast_solar.energy",
             )
             helper = getattr(module, "async_get_solar_forecast")
+        except (ImportError, AttributeError):
+            return None
+        if not callable(helper):
+            return None
+        try:
             signature = inspect.signature(helper)
-            parameters = list(signature.parameters.values())
-            if len(parameters) != 2 or [parameter.name for parameter in parameters] != ["hass", "config_entry_id"]:
-                return None
-            if any(parameter.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD} for parameter in parameters):
-                return None
-        except (ImportError, AttributeError, TypeError, ValueError):
+        except (TypeError, ValueError):
+            return None
+        positional = [
+            parameter
+            for parameter in signature.parameters.values()
+            if parameter.kind
+            in {
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            }
+        ]
+        if len(positional) < 2:
             return None
         self._helper = helper
         return helper
