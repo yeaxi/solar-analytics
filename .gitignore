@@ -39,3 +39,10 @@ dist/
 # Temporary reports/output
 reports/**/tmp/
 reports/**/output/
+
+# Local checkpoint scratch produced by tools/pv_soak_checkpoint.py runs
+reports/soak_checkpoints/*.json
+!reports/soak_checkpoints/.gitkeep
+
+# Ruff
+.ruff_cache/

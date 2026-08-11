@@ -1,0 +1,33 @@
+target-version = "py311"
+line-length = 100
+extend-exclude = ["reports"]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+    "TID",  # flake8-tidy-imports
+    "PL",   # pylint (curated below)
+    "PT",   # flake8-pytest-style
+]
+ignore = [
+    "E501",     # line length is checked, not enforced strictly across long SQL/docs
+    "PLR0912",  # too many branches (coordinator has intentionally long branches)
+    "PLR0913",  # too many arguments (dataclass constructors)
+    "PLR0915",  # too many statements
+    "PLR2004",  # magic value used in comparison (fine in tests)
+    "SIM108",   # ternary preferred (readability, not correctness)
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["PLR0913", "PLR2004", "B011"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
