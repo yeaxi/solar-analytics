@@ -1,11 +1,26 @@
-"""Fail-closed validity sensors for Solar Analytics v2."""
+"""Fail-closed binary-sensor entities published by Solar Analytics.
+
+The v2 read-only design intentionally keeps the legacy binary-sensor entity
+IDs present but neutral: near-zero anomaly, possible underperformance, storm
+follow-up, and curtailment claims are all suppressed until independent
+quality gates prove them, so they always report ``off``. Only the
+performance-analysis-valid and data-quality-problem sensors carry live
+state.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+    BinarySensorEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -15,27 +30,95 @@ from .const import DOMAIN, MANUFACTURER, NAME, VERSION
 from .coordinator import SolarAnalyticsCoordinator
 
 
-BINARY_DEFINITIONS: tuple[tuple[str, str, str | None], ...] = (
-    ("pv_performance_analysis_valid", "PV Performance Analysis Valid", None),
-    ("near_zero_anomaly", "PV Near-zero Anomaly", BinarySensorDeviceClass.PROBLEM),
-    ("possible_underperformance", "PV Possible Underperformance", BinarySensorDeviceClass.PROBLEM),
-    ("storm_follow_up", "PV Storm Follow-up", BinarySensorDeviceClass.PROBLEM),
-    ("data_quality_problem", "PV Analysis Data-quality Problem", BinarySensorDeviceClass.PROBLEM),
-    ("curtailment_detected", "PV Curtailment Detected", None),
+@dataclass(frozen=True, kw_only=True)
+class SolarAnalyticsBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """Bind a coordinator-payload predicate to a binary-sensor description."""
+
+    value_fn: Callable[[Mapping[str, Any]], bool | None]
+
+
+def _analysis_valid(data: Mapping[str, Any]) -> bool | None:
+    if not data:
+        return None
+    return bool(data.get("analysis_valid"))
+
+
+def _data_quality_problem(data: Mapping[str, Any]) -> bool | None:
+    if not data:
+        return None
+    return data.get("native_source_status") != "ok" or data.get("actual_power_w") is None
+
+
+def _neutral_false(_data: Mapping[str, Any]) -> bool:
+    return False
+
+
+BINARY_DESCRIPTIONS: tuple[SolarAnalyticsBinarySensorEntityDescription, ...] = (
+    SolarAnalyticsBinarySensorEntityDescription(
+        key="pv_performance_analysis_valid",
+        translation_key="pv_performance_analysis_valid",
+        icon="mdi:solar-power",
+        value_fn=_analysis_valid,
+    ),
+    SolarAnalyticsBinarySensorEntityDescription(
+        key="near_zero_anomaly",
+        translation_key="near_zero_anomaly",
+        icon="mdi:solar-power",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_registry_enabled_default=False,
+        value_fn=_neutral_false,
+    ),
+    SolarAnalyticsBinarySensorEntityDescription(
+        key="possible_underperformance",
+        translation_key="possible_underperformance",
+        icon="mdi:solar-power",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_registry_enabled_default=False,
+        value_fn=_neutral_false,
+    ),
+    SolarAnalyticsBinarySensorEntityDescription(
+        key="storm_follow_up",
+        translation_key="storm_follow_up",
+        icon="mdi:solar-power",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_registry_enabled_default=False,
+        value_fn=_neutral_false,
+    ),
+    SolarAnalyticsBinarySensorEntityDescription(
+        key="data_quality_problem",
+        translation_key="data_quality_problem",
+        icon="mdi:solar-power",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_data_quality_problem,
+    ),
+    SolarAnalyticsBinarySensorEntityDescription(
+        key="curtailment_detected",
+        translation_key="curtailment_detected",
+        icon="mdi:solar-power",
+        entity_registry_enabled_default=False,
+        value_fn=_neutral_false,
+    ),
 )
 
 
-class SolarAnalyticsBinarySensor(CoordinatorEntity[SolarAnalyticsCoordinator], BinarySensorEntity):
-    _attr_has_entity_name = False
+class SolarAnalyticsBinarySensor(
+    CoordinatorEntity[SolarAnalyticsCoordinator], BinarySensorEntity
+):
+    """Expose one boolean from the coordinator payload."""
 
-    def __init__(self, coordinator: SolarAnalyticsCoordinator, key: str, name: str, device_class: str | None) -> None:
+    _attr_has_entity_name = True
+    entity_description: SolarAnalyticsBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: SolarAnalyticsCoordinator,
+        description: SolarAnalyticsBinarySensorEntityDescription,
+    ) -> None:
         super().__init__(coordinator)
-        self._key = key
-        self._attr_unique_id = key
-        self._attr_suggested_object_id = key
-        self._attr_name = name
-        self._attr_device_class = device_class
-        self._attr_icon = "mdi:solar-power"
+        self.entity_description = description
+        self._attr_unique_id = description.key
+        self._attr_suggested_object_id = description.key
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "solar_analytics")},
             name=NAME,
@@ -46,18 +129,11 @@ class SolarAnalyticsBinarySensor(CoordinatorEntity[SolarAnalyticsCoordinator], B
 
     @property
     def is_on(self) -> bool | None:
-        data = self.coordinator.data
-        if not data:
-            return None
-        if self._key == "pv_performance_analysis_valid":
-            return bool(data.get("analysis_valid"))
-        # v2 does not manufacture anomaly/curtailment/storm claims from missing
-        # telemetry. These legacy entity IDs remain present but neutral/false.
-        if self._key in {"near_zero_anomaly", "possible_underperformance", "storm_follow_up", "curtailment_detected"}:
-            return False
-        if self._key == "data_quality_problem":
-            return data.get("native_source_status") != "ok" or data.get("actual_power_w") is None
-        return None
+        return self.entity_description.value_fn(self.coordinator.data or {})
+
+    @property
+    def available(self) -> bool:
+        return bool(self.coordinator.data)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -82,5 +158,6 @@ async def async_setup_entry(
 ) -> None:
     coordinator: SolarAnalyticsCoordinator = entry.runtime_data
     async_add_entities(
-        [SolarAnalyticsBinarySensor(coordinator, key, name, device_class) for key, name, device_class in BINARY_DEFINITIONS]
+        SolarAnalyticsBinarySensor(coordinator, description)
+        for description in BINARY_DESCRIPTIONS
     )

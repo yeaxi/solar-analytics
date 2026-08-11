@@ -1,61 +1,332 @@
-"""Read-only sensors published by Solar Analytics v2."""
+"""Read-only sensor entities published by Solar Analytics.
+
+Every entity uses the modern Home Assistant patterns required for the
+platinum quality tier: ``_attr_has_entity_name = True`` with a
+``translation_key``, explicit ``device_class`` / ``state_class`` /
+``entity_category`` / ``options`` where applicable, and per-entity
+``available`` logic. Legacy unique IDs and object IDs are preserved via
+:mod:`entity_contract` so upgrading from earlier versions does not create
+``_2`` duplicate entities.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfPower
+from homeassistant.const import EntityCategory, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 
 from .const import DOMAIN, MANUFACTURER, NAME, VERSION
 from .coordinator import SolarAnalyticsCoordinator
 from .entity_contract import DASHBOARD_ENTITY_OBJECT_IDS, DASHBOARD_ENTITY_UNIQUE_IDS
 
+_ANALYSIS_STATUS_OPTIONS = (
+    "ready",
+    "insufficient_data",
+    "native_source_unavailable",
+    "native_source_stale",
+    "unsupported_native_contract",
+    "actual_source_stale",
+    "actual_source_unavailable",
+    "binding_unavailable",
+    "binding_ambiguous",
+    "binding_changed",
+    "canonical_actual_mismatch",
+    "native_entry_unavailable",
+    "storage_failure",
+)
+_NATIVE_SOURCE_OPTIONS = (
+    "ok",
+    "uninitialized",
+    "unsupported_native_contract",
+    "native_source_unavailable",
+    "native_source_stale",
+    "binding_unavailable",
+    "binding_ambiguous",
+    "binding_changed",
+    "canonical_actual_mismatch",
+    "native_entry_unavailable",
+)
+_LIMITATION_OPTIONS = ("not_claimed", "curtailment", "external_control", "inverter_limitation")
+_ACCURACY_OPTIONS = ("ready", "insufficient_data")
+_FUTURE_PROFILE_OPTIONS = ("ready", "unavailable")
+_HEATMAP_OPTIONS = ("unavailable",)
 
-SENSOR_DEFINITIONS: tuple[tuple[str, str, str | None, str], ...] = (
-    ("actual_pv_power", "Actual PV Power", UnitOfPower.WATT, "mdi:solar-power"),
-    ("native_modules_power", "Native Forecast.Solar Module Power", UnitOfPower.WATT, "mdi:solar-panel-large"),
-    ("forecast_solar_power", "Forecast.Solar Power", UnitOfPower.WATT, "mdi:weather-sunny"),
-    ("vrm_forecast_power", "Victron VRM Forecast Power", UnitOfPower.WATT, "mdi:solar-power-variant"),
-    ("analysis_status", "Analysis Status", None, "mdi:chart-bell-curve"),
-    ("native_source_status", "Native Forecast.Solar Source Status", None, "mdi:source-branch"),
-    ("forecast_coverage", "Forecast Coverage", None, "mdi:chart-donut"),
-    ("actual_coverage", "Actual Coverage", None, "mdi:chart-donut-variant"),
-    ("paired_coverage", "Paired Coverage", None, "mdi:link-variant"),
-    ("lineage", "Solar Analytics Lineage", None, "mdi:source-commit"),
-    ("current_limitation", "Current PV Limitation", None, "mdi:transmission-tower-off"),
-    ("last_insight", "Last Solar Insight", None, "mdi:lightbulb-alert-outline"),
-    ("insight_json", "Solar Insight JSON", None, "mdi:code-json"),
-    ("accuracy", "Solar Forecast Accuracy", None, "mdi:chart-line"),
-    ("daily_comparison", "Solar Daily Comparison", None, "mdi:calendar-range"),
-    ("future_profile", "Solar Future Profile", None, "mdi:chart-timeline-variant"),
-    ("heatmap", "Solar Performance Heatmap", None, "mdi:heatmap"),
-    ("last_updated", "Solar Analytics Last Updated", None, "mdi:update"),
+
+@dataclass(frozen=True, kw_only=True)
+class SolarAnalyticsSensorEntityDescription(SensorEntityDescription):
+    """Entity description binding a coordinator-payload key to sensor attributes."""
+
+    value_fn: Callable[[Mapping[str, Any]], Any]
+    attributes_fn: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None
+    available_fn: Callable[[Mapping[str, Any]], bool] | None = None
+
+
+def _to_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _last_daily_local_date(data: Mapping[str, Any]) -> Any:
+    points = data.get("daily_points") or []
+    return points[-1][0] if points else "no_data"
+
+
+def _accuracy_status(data: Mapping[str, Any]) -> str:
+    accuracy = data.get("accuracy") or {}
+    return str(accuracy.get("status") or "insufficient_data")
+
+
+def _future_profile_status(data: Mapping[str, Any]) -> str:
+    return "ready" if data.get("future_points") else "unavailable"
+
+
+def _heatmap_status(data: Mapping[str, Any]) -> str:
+    return str((data.get("heatmap") or {}).get("status") or "unavailable")
+
+
+def _lineage_value(data: Mapping[str, Any]) -> str:
+    return data.get("lineage_id") or "unavailable"
+
+
+def _native_source_status(data: Mapping[str, Any]) -> str:
+    return str(data.get("native_source_status") or "uninitialized")
+
+
+def _payload_available(data: Mapping[str, Any]) -> bool:
+    return bool(data)
+
+
+def _analysis_available(data: Mapping[str, Any]) -> bool:
+    return bool(data) and data.get("status") is not None
+
+
+def _last_updated_value(data: Mapping[str, Any]) -> datetime | None:
+    return _to_datetime(data.get("last_updated"))
+
+
+SENSOR_DESCRIPTIONS: tuple[SolarAnalyticsSensorEntityDescription, ...] = (
+    SolarAnalyticsSensorEntityDescription(
+        key="actual_pv_power",
+        translation_key="actual_pv_power",
+        icon="mdi:solar-power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data.get("actual_power_w"),
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="native_modules_power",
+        translation_key="native_modules_power",
+        icon="mdi:solar-panel-large",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: (data.get("native_forecast_contract") or {}).get("modules_power_w"),
+        attributes_fn=lambda data: {
+            "native_forecast_contract": data.get("native_forecast_contract", {}),
+        },
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="forecast_solar_power",
+        translation_key="forecast_solar_power",
+        icon="mdi:weather-sunny",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data.get("forecast_solar_power_w"),
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="vrm_forecast_power",
+        translation_key="vrm_forecast_power",
+        icon="mdi:solar-power-variant",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+        value_fn=lambda data: data.get("vrm_forecast_power_w"),
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="analysis_status",
+        translation_key="analysis_status",
+        icon="mdi:chart-bell-curve",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_ANALYSIS_STATUS_OPTIONS),
+        value_fn=lambda data: data.get("status") or "insufficient_data",
+        available_fn=_analysis_available,
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="native_source_status",
+        translation_key="native_source_status",
+        icon="mdi:source-branch",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_NATIVE_SOURCE_OPTIONS),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_native_source_status,
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="forecast_coverage",
+        translation_key="forecast_coverage",
+        icon="mdi:chart-donut",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.get("forecast_coverage"),
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="actual_coverage",
+        translation_key="actual_coverage",
+        icon="mdi:chart-donut-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.get("actual_coverage"),
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="paired_coverage",
+        translation_key="paired_coverage",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.get("paired_coverage"),
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="lineage",
+        translation_key="lineage",
+        icon="mdi:source-commit",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_lineage_value,
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="current_limitation",
+        translation_key="current_limitation",
+        icon="mdi:transmission-tower-off",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_LIMITATION_OPTIONS),
+        value_fn=lambda data: data.get("current_limitation") or "not_claimed",
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="last_insight",
+        translation_key="last_insight",
+        icon="mdi:lightbulb-alert-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data.get("last_insight") or "insufficient_data",
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="insight_json",
+        translation_key="insight_json",
+        icon="mdi:code-json",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda data: data.get("status") or "insufficient_data",
+        attributes_fn=lambda data: {
+            "insight": data.get("insight") or {},
+            "hermes_json": data.get("hermes_json", ""),
+        },
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="accuracy",
+        translation_key="accuracy",
+        icon="mdi:chart-line",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_ACCURACY_OPTIONS),
+        value_fn=_accuracy_status,
+        attributes_fn=lambda data: {
+            "forecast_accuracy": data.get("accuracy", {}),
+            "coverage": (data.get("insight") or {}).get("coverage", {}),
+        },
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="daily_comparison",
+        translation_key="daily_comparison",
+        icon="mdi:calendar-range",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_last_daily_local_date,
+        attributes_fn=lambda data: {
+            "points": data.get("daily_points", []),
+            "schema": [
+                "date",
+                "actual_kwh",
+                "forecast_kwh",
+                "signed_error_kwh",
+                "forecast_coverage",
+                "actual_coverage",
+                "valid_paired_day",
+                "reason",
+            ],
+        },
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="future_profile",
+        translation_key="future_profile",
+        icon="mdi:chart-timeline-variant",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_FUTURE_PROFILE_OPTIONS),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_future_profile_status,
+        attributes_fn=lambda data: {
+            "points": data.get("future_points", []),
+            "storage": "SQLite v2; entity output bounded to 96 periods",
+        },
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="heatmap",
+        translation_key="heatmap",
+        icon="mdi:heatmap",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_HEATMAP_OPTIONS),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=_heatmap_status,
+        attributes_fn=lambda data: {
+            "heatmap": data.get("heatmap", {}),
+            "schema": "unavailable_until_paired_history",
+        },
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="last_updated",
+        translation_key="last_updated",
+        icon="mdi:update",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_last_updated_value,
+    ),
 )
 
 
 class SolarAnalyticsSensor(CoordinatorEntity[SolarAnalyticsCoordinator], SensorEntity):
-    """Expose compact, bounded current/history/provenance outputs."""
+    """Expose one compact, bounded output from the coordinator payload."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
+    entity_description: SolarAnalyticsSensorEntityDescription
 
-    def __init__(self, coordinator: SolarAnalyticsCoordinator, key: str, name: str, unit: str | None, icon: str) -> None:
+    def __init__(
+        self,
+        coordinator: SolarAnalyticsCoordinator,
+        description: SolarAnalyticsSensorEntityDescription,
+    ) -> None:
         super().__init__(coordinator)
-        self._key = key
-        object_id = DASHBOARD_ENTITY_OBJECT_IDS.get(key, f"solar_analytics_{key}")
-        unique_id = DASHBOARD_ENTITY_UNIQUE_IDS.get(key, f"solar_analytics_{key}")
-        self._attr_unique_id = unique_id
-        self._attr_suggested_object_id = object_id
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr_native_unit_of_measurement = unit
-        if key in {"actual_pv_power", "native_modules_power", "forecast_solar_power", "vrm_forecast_power"}:
-            self._attr_device_class = SensorDeviceClass.POWER
+        self.entity_description = description
+        key = description.key
+        self._attr_unique_id = DASHBOARD_ENTITY_UNIQUE_IDS.get(key, f"solar_analytics_{key}")
+        self._attr_suggested_object_id = DASHBOARD_ENTITY_OBJECT_IDS.get(
+            key, f"solar_analytics_{key}"
+        )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "solar_analytics")},
             name=NAME,
@@ -66,45 +337,14 @@ class SolarAnalyticsSensor(CoordinatorEntity[SolarAnalyticsCoordinator], SensorE
 
     @property
     def native_value(self) -> Any:
+        return self.entity_description.value_fn(self.coordinator.data or {})
+
+    @property
+    def available(self) -> bool:
         data = self.coordinator.data or {}
-        if self._key == "actual_pv_power":
-            return data.get("actual_power_w")
-        if self._key == "native_modules_power":
-            return (data.get("native_forecast_contract") or {}).get("modules_power_w")
-        if self._key == "forecast_solar_power":
-            return data.get("forecast_solar_power_w")
-        if self._key == "vrm_forecast_power":
-            return data.get("vrm_forecast_power_w")
-        if self._key == "analysis_status":
-            return data.get("status", "insufficient_data")
-        if self._key == "native_source_status":
-            return data.get("native_source_status", "unavailable")
-        if self._key == "forecast_coverage":
-            return data.get("forecast_coverage")
-        if self._key == "actual_coverage":
-            return data.get("actual_coverage")
-        if self._key == "paired_coverage":
-            return data.get("paired_coverage")
-        if self._key == "lineage":
-            return data.get("lineage_id") or "unavailable"
-        if self._key == "current_limitation":
-            return data.get("current_limitation", "not_claimed")
-        if self._key == "last_insight":
-            return data.get("last_insight", "insufficient_data")
-        if self._key == "insight_json":
-            return data.get("status", "insufficient_data")
-        if self._key == "accuracy":
-            return (data.get("accuracy") or {}).get("status", "insufficient_data")
-        if self._key == "daily_comparison":
-            points = data.get("daily_points") or []
-            return points[-1][0] if points else "no_data"
-        if self._key == "future_profile":
-            return "ready" if data.get("future_points") else "unavailable"
-        if self._key == "heatmap":
-            return (data.get("heatmap") or {}).get("status", "unavailable")
-        if self._key == "last_updated":
-            return data.get("last_updated")
-        return None
+        if self.entity_description.available_fn is not None:
+            return self.entity_description.available_fn(data)
+        return _payload_available(data)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -124,18 +364,9 @@ class SolarAnalyticsSensor(CoordinatorEntity[SolarAnalyticsCoordinator], SensorE
             "native_updated_at": data.get("native_updated_at"),
             "source_map": data.get("source_map", {}),
         }
-        if self._key == "native_modules_power":
-            attrs["native_forecast_contract"] = data.get("native_forecast_contract", {})
-        elif self._key == "insight_json":
-            attrs.update({"insight": insight, "hermes_json": data.get("hermes_json", "")})
-        elif self._key == "accuracy":
-            attrs.update({"forecast_accuracy": data.get("accuracy", {}), "coverage": insight.get("coverage", {})})
-        elif self._key == "daily_comparison":
-            attrs.update({"points": data.get("daily_points", []), "schema": ["date", "actual_kwh", "forecast_kwh", "signed_error_kwh", "forecast_coverage", "actual_coverage", "valid_paired_day", "reason"]})
-        elif self._key == "future_profile":
-            attrs.update({"points": data.get("future_points", []), "storage": "SQLite v2; entity output bounded to 96 periods"})
-        elif self._key == "heatmap":
-            attrs.update({"heatmap": data.get("heatmap", {}), "schema": "unavailable_until_paired_history"})
+        extra = self.entity_description.attributes_fn
+        if extra is not None:
+            attrs.update(dict(extra(data)))
         return attrs
 
     @callback
@@ -148,5 +379,5 @@ async def async_setup_entry(
 ) -> None:
     coordinator: SolarAnalyticsCoordinator = entry.runtime_data
     async_add_entities(
-        [SolarAnalyticsSensor(coordinator, key, name, unit, icon) for key, name, unit, icon in SENSOR_DEFINITIONS]
+        SolarAnalyticsSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS
     )
