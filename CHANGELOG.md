@@ -7,6 +7,52 @@ All notable changes to Solar Analytics are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Home Assistant brand assets at `custom_components/solar_analytics/brand/`
+  (`icon.png` 256x256 and `icon@2x.png` 512x512) so HACS renders a proper icon
+  for the integration and the "brands" validator passes without a
+  home-assistant/brands submission.
+- Coordinator now emits a single warning log when the native Forecast.Solar
+  binding becomes unavailable and a matching info log when it recovers;
+  repeated identical statuses no longer log per 5-minute poll (silver-tier
+  "log-when-unavailable" pattern).
+- `CONTRIBUTING.md` documents the one-time GitHub-side owner setup (repository
+  description + topics) that HACS validates against.
+
+### Changed
+- `hacs.json`: removed the invalid `"hacs"` key that made the HACS validator
+  reject the manifest; explicitly declared `"zip_release": false`.
+
+## [2.2.1] - 2026-08
+
+Housekeeping release covering PRs #2 and #3 as a single tag.
+
+### Added
+- Full `PARALLEL_UPDATES = 0` on both platforms; icon translations via
+  `icons.json` with per-state icons for enum sensors; exception translations
+  for `UpdateFailed` via `translation_domain` + `translation_key`.
+- Repair issues for the six actionable native-binding failure modes
+  (`canonical_actual_mismatch`, `binding_changed` fixable;
+  `binding_unavailable`, `binding_ambiguous`, `native_entry_unavailable`,
+  `unsupported_native_contract` informational) with full translations and
+  `ConfirmRepairFlow` handling.
+- New `custom_components/solar_analytics/payload.py` with a pure
+  `build_payload` function and companion tests.
+- `hassfest` + HACS validation workflow (`.github/workflows/validate.yml`).
+- Strict mypy against the seven pure modules (`const.py`, `entity_contract.py`,
+  `migration.py`, `native.py`, `v2_metrics.py`, `storage_v2.py`,
+  `tools/pv_soak_checkpoint.py`).
+- Diagnostics test coverage (`tests/test_diagnostics.py`).
+- Generic `examples/lovelace-example.yaml` + `examples/README.md`.
+
+### Changed
+- `scripts/recorder_backfill_report.py` fully parameterised: entity IDs,
+  timezone, and day-ahead hour are now CLI flags.
+
+## [2.2.0] - 2026-08
+
+Reusable, installation-agnostic refactor.
+
+### Added
 - Apache-2.0 `LICENSE`.
 - `CHANGELOG.md` (this file).
 - GitHub Actions CI running `pytest` and `ruff` on push and pull request.
