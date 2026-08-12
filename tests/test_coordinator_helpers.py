@@ -257,3 +257,43 @@ def test_maintain_repair_issues_clears_everything_on_healthy_binding(helpers) ->
         "native_entry_unavailable",
         "unsupported_native_contract",
     }
+
+
+def test_log_native_status_transition_logs_once_per_transition(helpers, caplog) -> None:
+    """Repeated identical statuses log once; a recovery emits an info line."""
+
+    import logging as _logging
+
+    shell = types.SimpleNamespace(_logged_native_status=None)
+
+    caplog.set_level(_logging.WARNING)
+    caplog.clear()
+    helpers.SolarAnalyticsCoordinator._log_native_status_transition(
+        shell, "native_source_unavailable", "native_update_not_observed"
+    )
+    helpers.SolarAnalyticsCoordinator._log_native_status_transition(
+        shell, "native_source_unavailable", "native_update_not_observed"
+    )
+    warnings = [r for r in caplog.records if r.levelno == _logging.WARNING]
+    assert len(warnings) == 1
+    assert "native_source_unavailable" in warnings[0].message
+
+    caplog.set_level(_logging.INFO)
+    caplog.clear()
+    helpers.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
+    helpers.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
+    infos = [r for r in caplog.records if r.levelno == _logging.INFO]
+    assert len(infos) == 1
+    assert "recovered" in infos[0].message
+
+
+def test_log_native_status_transition_stays_quiet_on_boot_when_healthy(helpers, caplog) -> None:
+    """First observation of 'ok' does not log anything (no prior failure to recover from)."""
+
+    import logging as _logging
+
+    shell = types.SimpleNamespace(_logged_native_status=None)
+    caplog.set_level(_logging.INFO)
+    caplog.clear()
+    helpers.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
+    assert caplog.records == []
