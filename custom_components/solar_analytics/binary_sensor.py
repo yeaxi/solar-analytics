@@ -29,6 +29,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN, MANUFACTURER, NAME, VERSION
 from .coordinator import SolarAnalyticsCoordinator
 
+# Coordinator-fanout entities read from a shared payload; there is no remote
+# work and no shared mutable state, so unlimited parallelism is safe.
+PARALLEL_UPDATES = 0
+
 
 @dataclass(frozen=True, kw_only=True)
 class SolarAnalyticsBinarySensorEntityDescription(BinarySensorEntityDescription):

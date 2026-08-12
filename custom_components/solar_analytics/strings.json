@@ -56,6 +56,11 @@
       }
     }
   },
+  "exceptions": {
+    "storage_failure": {
+      "message": "Solar Analytics storage failed with {error_type}. Analytics remain unavailable until the underlying SQLite store recovers."
+    }
+  },
   "entity": {
     "sensor": {
       "actual_pv_power": {"name": "Actual PV power"},

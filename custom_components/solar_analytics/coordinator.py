@@ -29,6 +29,7 @@ from .const import (
     CONF_TIME_ZONE,
     DEFAULT_DAY_AHEAD_HOUR,
     DEFAULT_MORNING_HOUR,
+    DOMAIN,
     NAME,
 )
 from .native import NATIVE_ADAPTER_VERSION, NATIVE_CONTRACT_VERSION
@@ -343,7 +344,11 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         except StorageError as err:
             _LOGGER.error("Solar Analytics storage fail-closed: %s", err)
-            raise UpdateFailed(f"storage_failure:{type(err).__name__}") from err
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="storage_failure",
+                translation_placeholders={"error_type": type(err).__name__},
+            ) from err
         self._last_payload = payload
         return payload
 
