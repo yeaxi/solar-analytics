@@ -55,6 +55,16 @@ def _install_entity_stubs() -> None:
     ha_core.callback = _passthrough
 
     ha_helpers = types.ModuleType("homeassistant.helpers")
+    ha_helpers_ir = types.ModuleType("homeassistant.helpers.issue_registry")
+
+    class _IssueSeverity:
+        WARNING = "warning"
+        ERROR = "error"
+
+    ha_helpers_ir.IssueSeverity = _IssueSeverity
+    ha_helpers_ir.async_create_issue = lambda *args, **kwargs: None
+    ha_helpers_ir.async_delete_issue = lambda *args, **kwargs: None
+
     ha_helpers_dr = types.ModuleType("homeassistant.helpers.device_registry")
 
     class _DeviceInfo(dict):
@@ -155,6 +165,7 @@ def _install_entity_stubs() -> None:
             "homeassistant.config_entries": ha_config,
             "homeassistant.core": ha_core,
             "homeassistant.helpers": ha_helpers,
+            "homeassistant.helpers.issue_registry": ha_helpers_ir,
             "homeassistant.helpers.device_registry": ha_helpers_dr,
             "homeassistant.helpers.entity_platform": ha_helpers_ep,
             "homeassistant.helpers.update_coordinator": ha_helpers_uc,

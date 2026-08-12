@@ -18,9 +18,7 @@ from pathlib import Path
 
 import pytest
 
-COMPONENT = (
-    Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
-)
+COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
 
 
 def _install_ha_stub() -> None:
@@ -60,6 +58,16 @@ def _install_ha_stub() -> None:
     ha_core.callback = _passthrough
 
     ha_helpers = types.ModuleType("homeassistant.helpers")
+    ha_helpers_ir = types.ModuleType("homeassistant.helpers.issue_registry")
+
+    class _IssueSeverity:
+        WARNING = "warning"
+        ERROR = "error"
+
+    ha_helpers_ir.IssueSeverity = _IssueSeverity
+    ha_helpers_ir.async_create_issue = lambda *args, **kwargs: None
+    ha_helpers_ir.async_delete_issue = lambda *args, **kwargs: None
+
     ha_helpers_event = types.ModuleType("homeassistant.helpers.event")
     ha_helpers_event.async_track_point_in_utc_time = lambda hass, action, when: lambda: None
 
@@ -99,6 +107,7 @@ def _install_ha_stub() -> None:
             "homeassistant.config_entries": ha_config,
             "homeassistant.core": ha_core,
             "homeassistant.helpers": ha_helpers,
+            "homeassistant.helpers.issue_registry": ha_helpers_ir,
             "homeassistant.helpers.event": ha_helpers_event,
             "homeassistant.helpers.update_coordinator": ha_helpers_uc,
             "homeassistant.components": ha_components,

@@ -61,6 +61,46 @@
       "message": "Solar Analytics storage завершився помилкою {error_type}. Аналітика недоступна, доки SQLite-сховище не відновиться."
     }
   },
+  "issues": {
+    "canonical_actual_mismatch": {
+      "title": "Невідповідність actual PV сенсора Solar Analytics",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Переналаштувати Solar Analytics",
+            "description": "Один із actual-PV сенсорів для Solar Analytics відсутній або не має правильного device_class/unit ({reason}). Відкрийте Settings \u2192 Devices & Services \u2192 Solar Analytics \u2192 Reconfigure, оберіть інші сенсори і підтвердьте тут."
+          }
+        }
+      }
+    },
+    "binding_changed": {
+      "title": "Config entry Forecast.Solar в Energy dashboard змінено",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Підтвердити новий Forecast.Solar entry",
+            "description": "Energy dashboard тепер вказує на інший Forecast.Solar config entry ({reason}). Відкрийте Settings \u2192 Devices & Services \u2192 Solar Analytics \u2192 Reconfigure для прийняття нового entry (або залиште попередній) і підтвердьте тут."
+          }
+        }
+      }
+    },
+    "binding_unavailable": {
+      "title": "У Solar Analytics немає solar source в Energy dashboard",
+      "description": "Energy dashboard не має solar source. Додайте його в Settings \u2192 Dashboards \u2192 Energy або переналаштуйте Solar Analytics на конкретний Forecast.Solar entry."
+    },
+    "binding_ambiguous": {
+      "title": "Solar Analytics не може обрати один Forecast.Solar entry",
+      "description": "Energy dashboard має нуль або більше одного solar source, або обраний source посилається на нуль або більше одного Forecast.Solar config entry ({reason}). Виправте Energy dashboard або переналаштуйте Solar Analytics на конкретний entry."
+    },
+    "native_entry_unavailable": {
+      "title": "Forecast.Solar config entry не завантажено",
+      "description": "Forecast.Solar config entry, до якого прив’язаний Solar Analytics, недоступний ({reason}). Переконайтеся, що інтеграцію Forecast.Solar встановлено та завантажено, і перезавантажте Solar Analytics."
+    },
+    "unsupported_native_contract": {
+      "title": "Home Assistant Forecast.Solar contract не підтримується",
+      "description": "Solar Analytics не зміг прочитати native Forecast.Solar profile у цій версії Home Assistant ({reason}). Оновіть Home Assistant до підтримуваного релізу або відкрийте issue з прикріпленими diagnostics."
+    }
+  },
   "entity": {
     "sensor": {
       "actual_pv_power": {"name": "Фактична PV-потужність"},

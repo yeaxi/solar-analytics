@@ -42,6 +42,16 @@ def _load_coordinator_helpers():
 
     ha_core.callback = _passthrough_callback
     ha_helpers = types.ModuleType("homeassistant.helpers")
+    ha_helpers_ir = types.ModuleType("homeassistant.helpers.issue_registry")
+
+    class _IssueSeverity:
+        WARNING = "warning"
+        ERROR = "error"
+
+    ha_helpers_ir.IssueSeverity = _IssueSeverity
+    ha_helpers_ir.async_create_issue = lambda *args, **kwargs: None
+    ha_helpers_ir.async_delete_issue = lambda *args, **kwargs: None
+
     ha_helpers_event = types.ModuleType("homeassistant.helpers.event")
     ha_helpers_event.async_track_point_in_utc_time = lambda hass, action, when: lambda: None
     ha_helpers_update = types.ModuleType("homeassistant.helpers.update_coordinator")
@@ -66,6 +76,7 @@ def _load_coordinator_helpers():
             "homeassistant.config_entries": ha_config,
             "homeassistant.core": ha_core,
             "homeassistant.helpers": ha_helpers,
+            "homeassistant.helpers.issue_registry": ha_helpers_ir,
             "homeassistant.helpers.event": ha_helpers_event,
             "homeassistant.helpers.update_coordinator": ha_helpers_update,
         }
@@ -168,3 +179,81 @@ def test_default_time_zone_falls_back_when_hass_has_no_config_attr(helpers) -> N
         pass
 
     assert helpers._default_time_zone(_Hass()) == "UTC"
+
+
+def test_maintain_repair_issues_creates_active_and_clears_the_rest(helpers) -> None:
+    """The coordinator raises exactly one issue at a time and clears the others."""
+
+    created: list[tuple[str, dict]] = []
+    deleted: list[str] = []
+
+    def _create(hass, domain, issue_id, **kwargs):
+        created.append((issue_id, kwargs))
+
+    def _delete(hass, domain, issue_id):
+        deleted.append(issue_id)
+
+    ir = sys.modules["homeassistant.helpers.issue_registry"]
+    ir.async_create_issue = _create
+    ir.async_delete_issue = _delete
+
+    shell = types.SimpleNamespace(hass=object())
+    helpers.SolarAnalyticsCoordinator._maintain_repair_issues(
+        shell, "canonical_actual_mismatch", "reason:power_missing"
+    )
+
+    assert len(created) == 1
+    issue_id, kwargs = created[0]
+    assert issue_id == "canonical_actual_mismatch"
+    assert kwargs["is_fixable"] is True
+    assert kwargs["translation_key"] == "canonical_actual_mismatch"
+    # Every other managed issue is proactively cleared, not left dangling.
+    assert set(deleted) >= {
+        "binding_unavailable",
+        "binding_ambiguous",
+        "binding_changed",
+        "native_entry_unavailable",
+        "unsupported_native_contract",
+    }
+
+
+def test_maintain_repair_issues_marks_informational_issues_non_fixable(helpers) -> None:
+    created: list[tuple[str, dict]] = []
+    ir = sys.modules["homeassistant.helpers.issue_registry"]
+    ir.async_create_issue = lambda hass, domain, issue_id, **kwargs: created.append(
+        (issue_id, kwargs)
+    )
+    ir.async_delete_issue = lambda *args, **kwargs: None
+
+    shell = types.SimpleNamespace(hass=object())
+    helpers.SolarAnalyticsCoordinator._maintain_repair_issues(
+        shell, "binding_ambiguous", "solar_source_count:0"
+    )
+
+    assert len(created) == 1
+    issue_id, kwargs = created[0]
+    assert issue_id == "binding_ambiguous"
+    assert kwargs["is_fixable"] is False
+
+
+def test_maintain_repair_issues_clears_everything_on_healthy_binding(helpers) -> None:
+    """When the binding is 'ok' every managed issue is deleted, none is created."""
+
+    created: list[str] = []
+    deleted: list[str] = []
+    ir = sys.modules["homeassistant.helpers.issue_registry"]
+    ir.async_create_issue = lambda hass, domain, issue_id, **kwargs: created.append(issue_id)
+    ir.async_delete_issue = lambda hass, domain, issue_id: deleted.append(issue_id)
+
+    shell = types.SimpleNamespace(hass=object())
+    helpers.SolarAnalyticsCoordinator._maintain_repair_issues(shell, "ok", None)
+
+    assert created == []
+    assert set(deleted) == {
+        "canonical_actual_mismatch",
+        "binding_changed",
+        "binding_unavailable",
+        "binding_ambiguous",
+        "native_entry_unavailable",
+        "unsupported_native_contract",
+    }

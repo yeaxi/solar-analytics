@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -47,6 +48,19 @@ from .v2_metrics import (
 
 _LOGGER = logging.getLogger(__name__)
 UPDATE_INTERVAL = timedelta(minutes=5)
+
+# Native binding statuses the coordinator surfaces as HA repair issues.
+# ``canonical_actual_mismatch`` and ``binding_changed`` are fixable via the
+# integration's reconfigure step; the rest are informational (non-fixable)
+# and describe the situation for the user.
+_ISSUE_FIXABLE = {"canonical_actual_mismatch", "binding_changed"}
+_ISSUE_INFO = {
+    "binding_unavailable",
+    "binding_ambiguous",
+    "native_entry_unavailable",
+    "unsupported_native_contract",
+}
+_MANAGED_ISSUE_IDS = _ISSUE_FIXABLE | _ISSUE_INFO
 
 
 def _default_time_zone(hass: HomeAssistant) -> str:
@@ -143,6 +157,23 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # slot; it never backfills with a later observation.
         await self._finalize_missed_slots()
         self._initialized = True
+
+    def _maintain_repair_issues(self, binding_status: str, reason: str | None) -> None:
+        """Create or clear HA repair issues for user-actionable binding failures."""
+
+        for issue_id in _MANAGED_ISSUE_IDS:
+            if issue_id == binding_status:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    issue_id,
+                    is_fixable=issue_id in _ISSUE_FIXABLE,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key=issue_id,
+                    translation_placeholders={"reason": reason or issue_id},
+                )
+            else:
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     @property
     def actual_power_entity(self) -> str | None:
@@ -310,6 +341,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = datetime.now(UTC)
         native_read = await self.native_adapter.async_capture()
         self._last_native_read = native_read
+        self._maintain_repair_issues(native_read.binding.status, native_read.binding.reason)
         power_entity = self.actual_power_entity or ""
         energy_entity = self.actual_energy_entity or ""
         power_state = (
