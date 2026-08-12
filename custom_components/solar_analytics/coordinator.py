@@ -137,6 +137,10 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_native_read: NativeRead | None = None
         self._last_payload: dict[str, Any] | None = None
         self._initialized = False
+        # Silver-tier "log when unavailable / log when recovered" state.
+        # Holds the last reported native binding status so we log once per
+        # transition instead of every 5-minute poll.
+        self._logged_native_status: str | None = None
         super().__init__(
             hass,
             _LOGGER,
@@ -174,6 +178,32 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             else:
                 ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    def _log_native_status_transition(self, binding_status: str, reason: str | None) -> None:
+        """Log exactly once per binding-status transition.
+
+        Prevents the 5-minute update loop from spamming the log while a
+        recoverable failure (native_source_unavailable, native_source_stale)
+        persists. Emits a matching info-level line when the binding recovers
+        to 'ok'.
+        """
+
+        if binding_status == self._logged_native_status:
+            return
+        previous = self._logged_native_status
+        self._logged_native_status = binding_status
+        if binding_status == "ok":
+            if previous is not None:
+                _LOGGER.info(
+                    "Solar Analytics native Forecast.Solar binding recovered from %s",
+                    previous,
+                )
+        else:
+            _LOGGER.warning(
+                "Solar Analytics native Forecast.Solar binding unavailable: %s (%s)",
+                binding_status,
+                reason or "no_reason",
+            )
 
     @property
     def actual_power_entity(self) -> str | None:
@@ -342,6 +372,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         native_read = await self.native_adapter.async_capture()
         self._last_native_read = native_read
         self._maintain_repair_issues(native_read.binding.status, native_read.binding.reason)
+        self._log_native_status_transition(native_read.binding.status, native_read.binding.reason)
         power_entity = self.actual_power_entity or ""
         energy_entity = self.actual_energy_entity or ""
         power_state = (
