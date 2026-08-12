@@ -1,0 +1,145 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Solar Analytics",
+        "description": "Solar Analytics observes the Forecast.Solar profile used by the Home Assistant Energy Dashboard and compares it with your canonical PV power/energy sensors. The integration is read-only: it never controls devices, sends notifications, or triggers services.\n\nBy default, actual-PV entities and the Forecast.Solar config entry are auto-detected from the Energy Dashboard configuration. Override any field below if you want to bind to different sensors or a different Forecast.Solar entry.",
+        "data": {
+          "actual_power_entity": "Actual PV power sensor",
+          "actual_energy_today_entity": "Actual PV energy-today sensor",
+          "native_forecast_entry_id": "Forecast.Solar config entry",
+          "time_zone": "Analytics timezone",
+          "morning_snapshot_hour": "Morning snapshot hour (0-23)",
+          "day_ahead_snapshot_hour": "Day-ahead snapshot hour (0-23)"
+        },
+        "data_description": {
+          "actual_power_entity": "The instantaneous PV power sensor (device_class=power, state_class=measurement, unit W or kW). Leave blank to auto-detect from the Energy Dashboard.",
+          "actual_energy_today_entity": "The daily PV energy counter (device_class=energy, state_class=total or total_increasing, unit kWh or Wh). Leave blank to auto-detect.",
+          "native_forecast_entry_id": "Which Forecast.Solar config entry to bind to. Leave blank to auto-detect from the Energy Dashboard's solar source.",
+          "time_zone": "The timezone used for the morning and day-ahead snapshot boundaries and for daily accuracy roll-ups. Defaults to Home Assistant's timezone.",
+          "morning_snapshot_hour": "Local hour at which the morning-baseline snapshot is taken the day before the target day. Defaults to 06:00.",
+          "day_ahead_snapshot_hour": "Local hour at which the day-ahead diagnostic snapshot is taken. Defaults to 23:00."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Solar Analytics",
+        "description": "Change which actual-PV sensors, Forecast.Solar entry, timezone, or snapshot hours Solar Analytics uses. Changing the sensors or the Forecast.Solar entry starts a new lineage; historical accuracy stays associated with the previous lineage.",
+        "data": {
+          "actual_power_entity": "Actual PV power sensor",
+          "actual_energy_today_entity": "Actual PV energy-today sensor",
+          "native_forecast_entry_id": "Forecast.Solar config entry",
+          "time_zone": "Analytics timezone",
+          "morning_snapshot_hour": "Morning snapshot hour (0-23)",
+          "day_ahead_snapshot_hour": "Day-ahead snapshot hour (0-23)"
+        }
+      }
+    },
+    "error": {
+      "invalid_actual_power_entity": "The selected sensor does not look like a PV power sensor (device_class=power, unit W or kW).",
+      "invalid_actual_energy_entity": "The selected sensor does not look like a PV energy counter (device_class=energy, unit kWh or Wh).",
+      "invalid_native_forecast_entry": "The selected config entry is not a Forecast.Solar entry.",
+      "invalid_snapshot_hour": "Snapshot hour must be an integer between 0 and 23.",
+      "invalid_time_zone": "The selected timezone is not a valid IANA timezone."
+    },
+    "abort": {
+      "already_configured": "Solar Analytics is already configured. Use Reconfigure to change its settings.",
+      "reconfigure_successful": "Solar Analytics has been reconfigured.",
+      "energy_manager_unavailable": "The Home Assistant Energy dashboard is not available. Enable it before adding Solar Analytics."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solar Analytics options",
+        "description": "There are no mutable thresholds. Any change to model shape or snapshot times starts a new lineage; historical results are kept for previous lineages.",
+        "data": {}
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "actual_pv_power": {"name": "Actual PV power"},
+      "native_modules_power": {"name": "Native Forecast.Solar module power"},
+      "forecast_solar_power": {"name": "Forecast.Solar power"},
+      "vrm_forecast_power": {"name": "Victron VRM forecast power"},
+      "analysis_status": {
+        "name": "Analysis status",
+        "state": {
+          "ready": "Ready",
+          "insufficient_data": "Insufficient data",
+          "native_source_unavailable": "Native Forecast.Solar unavailable",
+          "native_source_stale": "Native Forecast.Solar stale",
+          "unsupported_native_contract": "Unsupported Forecast.Solar contract",
+          "actual_source_stale": "Actual PV telemetry stale",
+          "actual_source_unavailable": "Actual PV telemetry unavailable",
+          "binding_unavailable": "Energy source binding unavailable",
+          "binding_ambiguous": "Energy source binding ambiguous",
+          "binding_changed": "Energy source binding changed",
+          "canonical_actual_mismatch": "Energy dashboard actual mismatch",
+          "native_entry_unavailable": "Forecast.Solar entry unavailable",
+          "storage_failure": "Storage failure"
+        }
+      },
+      "native_source_status": {
+        "name": "Native Forecast.Solar source status",
+        "state": {
+          "ok": "OK",
+          "uninitialized": "Uninitialized",
+          "unsupported_native_contract": "Unsupported contract",
+          "native_source_unavailable": "Unavailable",
+          "native_source_stale": "Stale",
+          "binding_unavailable": "Binding unavailable",
+          "binding_ambiguous": "Binding ambiguous",
+          "binding_changed": "Binding changed",
+          "canonical_actual_mismatch": "Actual mismatch",
+          "native_entry_unavailable": "Entry unavailable"
+        }
+      },
+      "forecast_coverage": {"name": "Forecast coverage"},
+      "actual_coverage": {"name": "Actual coverage"},
+      "paired_coverage": {"name": "Paired coverage"},
+      "lineage": {"name": "Analytics lineage"},
+      "current_limitation": {
+        "name": "Current PV limitation",
+        "state": {
+          "not_claimed": "Not claimed",
+          "curtailment": "Curtailment",
+          "external_control": "External control",
+          "inverter_limitation": "Inverter limitation"
+        }
+      },
+      "last_insight": {"name": "Last insight"},
+      "insight_json": {"name": "Insight (JSON)"},
+      "accuracy": {
+        "name": "Forecast accuracy",
+        "state": {
+          "ready": "Ready",
+          "insufficient_data": "Insufficient data"
+        }
+      },
+      "daily_comparison": {"name": "Daily comparison"},
+      "future_profile": {
+        "name": "Future profile",
+        "state": {
+          "ready": "Ready",
+          "unavailable": "Unavailable"
+        }
+      },
+      "heatmap": {
+        "name": "Performance heatmap",
+        "state": {
+          "unavailable": "Unavailable"
+        }
+      },
+      "last_updated": {"name": "Last updated"}
+    },
+    "binary_sensor": {
+      "pv_performance_analysis_valid": {"name": "PV performance analysis valid"},
+      "near_zero_anomaly": {"name": "PV near-zero anomaly"},
+      "possible_underperformance": {"name": "PV possible underperformance"},
+      "storm_follow_up": {"name": "PV storm follow-up"},
+      "data_quality_problem": {"name": "PV analysis data-quality problem"},
+      "curtailment_detected": {"name": "PV curtailment detected"}
+    }
+  }
+}

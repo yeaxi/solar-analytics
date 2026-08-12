@@ -1,0 +1,145 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Solar Analytics",
+        "description": "Solar Analytics спостерігає за профілем Forecast.Solar, який використовує Home Assistant Energy Dashboard, і порівнює його з canonical актуальними PV-сенсорами (потужність/енергія). Інтеграція read-only: не керує пристроями, не надсилає нотифікації, не викликає сервіси.\n\nЗа замовчуванням actual-PV сенсори та Forecast.Solar config entry автоматично визначаються з конфігурації Energy Dashboard. Заповніть поля нижче, лише якщо хочете прив’язатися до інших сенсорів або іншого Forecast.Solar entry.",
+        "data": {
+          "actual_power_entity": "Сенсор фактичної PV-потужності",
+          "actual_energy_today_entity": "Сенсор фактичної PV-енергії (за сьогодні)",
+          "native_forecast_entry_id": "Config entry Forecast.Solar",
+          "time_zone": "Часовий пояс аналітики",
+          "morning_snapshot_hour": "Година ранкового snapshot (0-23)",
+          "day_ahead_snapshot_hour": "Година day-ahead snapshot (0-23)"
+        },
+        "data_description": {
+          "actual_power_entity": "Сенсор миттєвої PV-потужності (device_class=power, state_class=measurement, W або kW). Залиште порожнім для автовизначення з Energy Dashboard.",
+          "actual_energy_today_entity": "Лічильник PV-енергії за день (device_class=energy, state_class=total або total_increasing, kWh або Wh). Залиште порожнім для автовизначення.",
+          "native_forecast_entry_id": "Який Forecast.Solar config entry використовувати. Залиште порожнім для автовизначення з solar source в Energy Dashboard.",
+          "time_zone": "Часовий пояс для меж snapshot-ів та щоденних результатів. За замовчуванням — часовий пояс Home Assistant.",
+          "morning_snapshot_hour": "Локальна година, коли робиться morning-baseline snapshot напередодні цільового дня. За замовчуванням 06:00.",
+          "day_ahead_snapshot_hour": "Локальна година day-ahead diagnostic snapshot. За замовчуванням 23:00."
+        }
+      },
+      "reconfigure": {
+        "title": "Переналаштувати Solar Analytics",
+        "description": "Змініть actual-PV сенсори, Forecast.Solar entry, часовий пояс або години snapshot. Зміна сенсорів або Forecast.Solar entry стартує нову lineage; історична accuracy залишається за попередньою lineage.",
+        "data": {
+          "actual_power_entity": "Сенсор фактичної PV-потужності",
+          "actual_energy_today_entity": "Сенсор фактичної PV-енергії (за сьогодні)",
+          "native_forecast_entry_id": "Config entry Forecast.Solar",
+          "time_zone": "Часовий пояс аналітики",
+          "morning_snapshot_hour": "Година ранкового snapshot (0-23)",
+          "day_ahead_snapshot_hour": "Година day-ahead snapshot (0-23)"
+        }
+      }
+    },
+    "error": {
+      "invalid_actual_power_entity": "Обраний сенсор не схожий на PV power (device_class=power, W або kW).",
+      "invalid_actual_energy_entity": "Обраний сенсор не схожий на PV energy counter (device_class=energy, kWh або Wh).",
+      "invalid_native_forecast_entry": "Обраний config entry не належить Forecast.Solar.",
+      "invalid_snapshot_hour": "Година snapshot має бути цілим числом від 0 до 23.",
+      "invalid_time_zone": "Обраний часовий пояс не є валідним IANA timezone."
+    },
+    "abort": {
+      "already_configured": "Solar Analytics вже налаштовано. Використайте Reconfigure для зміни налаштувань.",
+      "reconfigure_successful": "Solar Analytics переналаштовано.",
+      "energy_manager_unavailable": "Home Assistant Energy dashboard недоступний. Увімкніть його перед додаванням Solar Analytics."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Опції Solar Analytics",
+        "description": "Mutable thresholds відсутні. Зміна форми моделі або часу snapshot стартує нову lineage; історія попередніх lineage зберігається.",
+        "data": {}
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "actual_pv_power": {"name": "Фактична PV-потужність"},
+      "native_modules_power": {"name": "Потужність модулів (Native Forecast.Solar)"},
+      "forecast_solar_power": {"name": "Forecast.Solar потужність"},
+      "vrm_forecast_power": {"name": "Victron VRM forecast потужність"},
+      "analysis_status": {
+        "name": "Статус аналізу",
+        "state": {
+          "ready": "Готово",
+          "insufficient_data": "Недостатньо даних",
+          "native_source_unavailable": "Native Forecast.Solar недоступний",
+          "native_source_stale": "Native Forecast.Solar застарілий",
+          "unsupported_native_contract": "Непідтримуваний контракт Forecast.Solar",
+          "actual_source_stale": "Actual PV telemetry застаріле",
+          "actual_source_unavailable": "Actual PV telemetry недоступне",
+          "binding_unavailable": "Прив’язка Energy source недоступна",
+          "binding_ambiguous": "Прив’язка Energy source неоднозначна",
+          "binding_changed": "Прив’язку Energy source змінено",
+          "canonical_actual_mismatch": "Actual в Energy dashboard не збігається",
+          "native_entry_unavailable": "Forecast.Solar entry недоступний",
+          "storage_failure": "Помилка сховища"
+        }
+      },
+      "native_source_status": {
+        "name": "Статус Native Forecast.Solar",
+        "state": {
+          "ok": "OK",
+          "uninitialized": "Не ініціалізовано",
+          "unsupported_native_contract": "Непідтримуваний контракт",
+          "native_source_unavailable": "Недоступний",
+          "native_source_stale": "Застарілий",
+          "binding_unavailable": "Прив’язка недоступна",
+          "binding_ambiguous": "Прив’язка неоднозначна",
+          "binding_changed": "Прив’язку змінено",
+          "canonical_actual_mismatch": "Actual не збігається",
+          "native_entry_unavailable": "Entry недоступний"
+        }
+      },
+      "forecast_coverage": {"name": "Forecast coverage"},
+      "actual_coverage": {"name": "Actual coverage"},
+      "paired_coverage": {"name": "Paired coverage"},
+      "lineage": {"name": "Lineage аналітики"},
+      "current_limitation": {
+        "name": "Поточне обмеження PV",
+        "state": {
+          "not_claimed": "Не заявлено",
+          "curtailment": "Curtailment",
+          "external_control": "Зовнішнє керування",
+          "inverter_limitation": "Обмеження інвертора"
+        }
+      },
+      "last_insight": {"name": "Останній insight"},
+      "insight_json": {"name": "Insight (JSON)"},
+      "accuracy": {
+        "name": "Accuracy прогнозу",
+        "state": {
+          "ready": "Готово",
+          "insufficient_data": "Недостатньо даних"
+        }
+      },
+      "daily_comparison": {"name": "Щоденне порівняння"},
+      "future_profile": {
+        "name": "Майбутній профіль",
+        "state": {
+          "ready": "Готово",
+          "unavailable": "Недоступний"
+        }
+      },
+      "heatmap": {
+        "name": "Heatmap продуктивності",
+        "state": {
+          "unavailable": "Недоступний"
+        }
+      },
+      "last_updated": {"name": "Останнє оновлення"}
+    },
+    "binary_sensor": {
+      "pv_performance_analysis_valid": {"name": "Аналіз продуктивності PV валідний"},
+      "near_zero_anomaly": {"name": "Аномалія near-zero PV"},
+      "possible_underperformance": {"name": "Можлива underperformance PV"},
+      "storm_follow_up": {"name": "Storm follow-up PV"},
+      "data_quality_problem": {"name": "Data-quality problem аналізу PV"},
+      "curtailment_detected": {"name": "Виявлено curtailment PV"}
+    }
+  }
+}
