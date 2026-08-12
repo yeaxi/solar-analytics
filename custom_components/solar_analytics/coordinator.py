@@ -10,7 +10,6 @@ integration.
 from __future__ import annotations
 
 import functools
-import json
 import logging
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
@@ -20,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -29,10 +29,12 @@ from .const import (
     CONF_TIME_ZONE,
     DEFAULT_DAY_AHEAD_HOUR,
     DEFAULT_MORNING_HOUR,
+    DOMAIN,
     NAME,
 )
 from .native import NATIVE_ADAPTER_VERSION, NATIVE_CONTRACT_VERSION
 from .native_adapter import ForecastSolarNativeAdapter, NativeObservation, NativeRead
+from .payload import build_payload
 from .storage_v2 import METRIC_VERSION, NORMALIZATION_VERSION, SolarAnalyticsV2Store, StorageError
 from .v2_metrics import (
     MIN_ACTUAL_COVERAGE,
@@ -46,6 +48,19 @@ from .v2_metrics import (
 
 _LOGGER = logging.getLogger(__name__)
 UPDATE_INTERVAL = timedelta(minutes=5)
+
+# Native binding statuses the coordinator surfaces as HA repair issues.
+# ``canonical_actual_mismatch`` and ``binding_changed`` are fixable via the
+# integration's reconfigure step; the rest are informational (non-fixable)
+# and describe the situation for the user.
+_ISSUE_FIXABLE = {"canonical_actual_mismatch", "binding_changed"}
+_ISSUE_INFO = {
+    "binding_unavailable",
+    "binding_ambiguous",
+    "native_entry_unavailable",
+    "unsupported_native_contract",
+}
+_MANAGED_ISSUE_IDS = _ISSUE_FIXABLE | _ISSUE_INFO
 
 
 def _default_time_zone(hass: HomeAssistant) -> str:
@@ -142,6 +157,23 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # slot; it never backfills with a later observation.
         await self._finalize_missed_slots()
         self._initialized = True
+
+    def _maintain_repair_issues(self, binding_status: str, reason: str | None) -> None:
+        """Create or clear HA repair issues for user-actionable binding failures."""
+
+        for issue_id in _MANAGED_ISSUE_IDS:
+            if issue_id == binding_status:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    issue_id,
+                    is_fixable=issue_id in _ISSUE_FIXABLE,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key=issue_id,
+                    translation_placeholders={"reason": reason or issue_id},
+                )
+            else:
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     @property
     def actual_power_entity(self) -> str | None:
@@ -309,6 +341,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = datetime.now(UTC)
         native_read = await self.native_adapter.async_capture()
         self._last_native_read = native_read
+        self._maintain_repair_issues(native_read.binding.status, native_read.binding.reason)
         power_entity = self.actual_power_entity or ""
         energy_entity = self.actual_energy_entity or ""
         power_state = (
@@ -343,7 +376,11 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         except StorageError as err:
             _LOGGER.error("Solar Analytics storage fail-closed: %s", err)
-            raise UpdateFailed(f"storage_failure:{type(err).__name__}") from err
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="storage_failure",
+                translation_placeholders={"error_type": type(err).__name__},
+            ) from err
         self._last_payload = payload
         return payload
 
@@ -395,7 +432,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 accuracy_ready=bool(accuracy["accuracy_ready"]),
                 payload=accuracy,
             )
-        return self._build_payload(
+        return build_payload(
             native_read=native_read,
             actual_power=actual_power,
             actual_energy=actual_energy,
@@ -616,145 +653,6 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.store.list_daily(
             lineage_id=lineage_id, since=(today - timedelta(days=ROLLING_DAYS + 2)).isoformat()
         )
-
-    def _build_payload(
-        self,
-        *,
-        native_read: NativeRead,
-        actual_power: ActualState,
-        actual_energy: ActualState,
-        accuracy: Mapping[str, Any],
-        daily_rows: list[Mapping[str, Any]],
-        lineage_id: str | None,
-        reconciliation_status: str,
-        now_utc: datetime,
-    ) -> dict[str, Any]:
-        observation = native_read.observation
-        model = observation.model if observation is not None else native_read.model
-        native_contract = dict(model.values) if model is not None else {}
-        native_contract.update(
-            {
-                "status": native_read.status,
-                "native_entry_id": native_read.binding.native_entry_id,
-                "model_fingerprint_sha256": model.fingerprint if model else None,
-                "native_contract_version": NATIVE_CONTRACT_VERSION,
-                "adapter_version": NATIVE_ADAPTER_VERSION,
-                "native_update_time_source": "local_listener_observation",
-            }
-        )
-        forecast_power = None
-        future_points: list[dict[str, Any]] = []
-        if observation is not None:
-            for period in observation.profile.valid_periods:
-                if period.start_utc is None:
-                    continue
-                future_points.append(
-                    {
-                        "start_utc": period.start_utc.isoformat(),
-                        "end_utc": period.end_utc.isoformat(),
-                        "energy_wh": period.energy_wh,
-                        "duration_seconds": period.duration_seconds,
-                        "power_w": period.power_w,
-                    }
-                )
-                if period.start_utc <= now_utc < period.end_utc:
-                    forecast_power = period.power_w
-            future_points = future_points[:96]
-        daily_points = [
-            [
-                row.get("local_date"),
-                row.get("actual_kwh"),
-                row.get("forecast_kwh"),
-                row.get("signed_error_kwh"),
-                row.get("forecast_coverage"),
-                row.get("actual_coverage"),
-                row.get("valid_paired_day"),
-                row.get("reason"),
-            ]
-            for row in daily_rows[-30:]
-        ]
-        latest_daily = daily_rows[-1] if daily_rows else {}
-        if native_read.status != "ok":
-            status = native_read.status
-            validity_reason = native_read.reason or native_read.status
-        elif not actual_power.valid or not actual_energy.valid:
-            status = (
-                "actual_source_stale"
-                if actual_power.status == "stale" or actual_energy.status == "stale"
-                else "actual_source_unavailable"
-            )
-            validity_reason = actual_power.reason or actual_energy.reason or status
-        elif accuracy.get("accuracy_ready"):
-            status = "ready"
-            validity_reason = "paired_history_ready"
-        else:
-            status = "insufficient_data"
-            validity_reason = "native_and_actual_valid_but_history_below_gate"
-        insight = {
-            "schema": "solar-analytics-v2",
-            "generated_at": now_utc.isoformat(),
-            "status": status,
-            "lineage_id": lineage_id,
-            "forecast_accuracy": dict(accuracy),
-            "coverage": {
-                "required_forecast": MIN_FORECAST_COVERAGE,
-                "required_actual": MIN_ACTUAL_COVERAGE,
-                "valid_paired_days": accuracy.get("valid_paired_days", 0),
-            },
-            "quality": {
-                "native_status": native_read.status,
-                "actual_power_status": actual_power.status,
-                "actual_energy_status": actual_energy.status,
-                "reconciliation_status": reconciliation_status,
-                "curtailment": "unknown_not_claimed",
-                "external_control": "unknown_not_claimed",
-                "inverter_limitation": "unknown_not_claimed",
-                "underperformance_claim_allowed": False,
-            },
-        }
-        return {
-            "status": status,
-            "analysis_valid": bool(accuracy.get("accuracy_ready")),
-            "forecast_profile_analysis_allowed": native_read.status == "ok"
-            and observation is not None,
-            "native_source_status": native_read.status,
-            "native_forecast_contract": native_contract,
-            "actual_power_w": actual_power.value if actual_power.valid else None,
-            "actual_energy_kwh": actual_energy.value if actual_energy.valid else None,
-            "forecast_solar_power_w": forecast_power,
-            "vrm_forecast_power_w": None,
-            "current_limitation": "not_claimed",
-            "validity_reason": validity_reason,
-            "curtailment_reason": None,
-            "last_insight": validity_reason,
-            "insight": insight,
-            "hermes_json": json.dumps(
-                insight, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-            ),
-            "daily_points": daily_points,
-            "future_points": future_points,
-            "heatmap": {"status": "unavailable", "x": [], "y": [], "z": [], "customdata": []},
-            "accuracy": dict(accuracy),
-            "forecast_coverage": latest_daily.get("forecast_coverage"),
-            "actual_coverage": latest_daily.get("actual_coverage"),
-            "paired_coverage": latest_daily.get("paired_coverage"),
-            "lineage_id": lineage_id,
-            "native_observation_sequence": observation.observation_sequence
-            if observation
-            else None,
-            "native_payload_sha256": observation.payload_sha256 if observation else None,
-            "native_observed_at": _iso(observation.observed_at_utc) if observation else None,
-            "native_updated_at": _iso(observation.native_updated_at_utc) if observation else None,
-            "source_map": {
-                "forecast": "homeassistant.components.forecast_solar.energy.async_get_solar_forecast",
-                "native_config_entry": native_read.binding.native_entry_id,
-                "actual_power": native_read.binding.actual_power_entity,
-                "actual_energy": native_read.binding.actual_energy_entity,
-                "vrm": "scalar_context_only",
-            },
-            "last_updated": now_utc.isoformat(),
-            "reconciliation_status": reconciliation_status,
-        }
 
     def current_native_forecast_contract(self) -> dict[str, Any]:
         data = self.data or self._last_payload or {}

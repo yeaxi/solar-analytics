@@ -33,6 +33,10 @@ from .const import DOMAIN, MANUFACTURER, NAME, VERSION
 from .coordinator import SolarAnalyticsCoordinator
 from .entity_contract import DASHBOARD_ENTITY_OBJECT_IDS, DASHBOARD_ENTITY_UNIQUE_IDS
 
+# Coordinator-fanout entities read from a shared payload; there is no remote
+# work and no shared mutable state, so unlimited parallelism is safe.
+PARALLEL_UPDATES = 0
+
 _ANALYSIS_STATUS_OPTIONS = (
     "ready",
     "insufficient_data",

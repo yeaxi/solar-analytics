@@ -137,7 +137,8 @@ def validate_actual_state(
         return ActualState(
             expected_entity_id, None, None, None, "invalid", "unknown_or_unavailable"
         )
-    attrs = state.get("attributes") if isinstance(state.get("attributes"), Mapping) else {}
+    raw_attrs = state.get("attributes")
+    attrs: Mapping[str, Any] = raw_attrs if isinstance(raw_attrs, Mapping) else {}
     if attrs.get("restored") is True or state.get("restored") is True:
         return ActualState(expected_entity_id, None, None, None, "invalid", "restored_state")
     observed = _as_utc(state.get("last_updated"))

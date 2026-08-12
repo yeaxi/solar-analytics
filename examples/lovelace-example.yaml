@@ -1,0 +1,85 @@
+# Generic Lovelace dashboard example for Solar Analytics.
+#
+# Copy this into a new dashboard (Settings -> Dashboards -> Add dashboard -> from YAML),
+# or paste individual cards into your existing dashboard. Every entity_id used
+# here is the default that Solar Analytics registers; if you renamed any of them
+# in the entity registry, replace the entity references accordingly.
+#
+# The dashboard is deliberately conservative: it renders only entities that
+# ship enabled by default. Diagnostic-only entities (VRM forecast power,
+# insight JSON, heatmap, neutral binary sensors) are disabled by default in
+# the registry and can be enabled per your preference before adding cards for
+# them.
+
+title: Solar Analytics
+views:
+  - title: Overview
+    path: solar-analytics
+    icon: mdi:solar-power
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Solar Analytics
+            heading_style: title
+            icon: mdi:solar-power
+          - type: entities
+            title: Live status
+            state_color: true
+            entities:
+              - entity: sensor.solar_analytics_analysis_status
+                name: Analysis
+              - entity: sensor.solar_analytics_native_forecast_solar_source_status
+                name: Forecast.Solar source
+              - entity: sensor.solar_analytics_solar_forecast_accuracy
+                name: Accuracy
+              - entity: sensor.solar_analytics_last_updated
+                name: Last updated
+              - entity: binary_sensor.pv_performance_analysis_valid
+                name: Analysis valid
+              - entity: binary_sensor.data_quality_problem
+                name: Data-quality problem
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Power now
+            heading_style: subtitle
+            icon: mdi:flash
+          - type: glance
+            columns: 3
+            entities:
+              - entity: sensor.solar_analytics_actual_pv_power
+                name: Actual
+              - entity: sensor.solar_analytics_forecast_solar_power
+                name: Forecast
+              - entity: sensor.solar_analytics_native_forecast_solar_module_power
+                name: Modules
+          - type: history-graph
+            title: Actual vs Forecast (24h)
+            hours_to_show: 24
+            refresh_interval: 60
+            entities:
+              - entity: sensor.solar_analytics_actual_pv_power
+                name: Actual
+              - entity: sensor.solar_analytics_forecast_solar_power
+                name: Forecast
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Coverage
+            heading_style: subtitle
+            icon: mdi:chart-donut
+          - type: entities
+            entities:
+              - entity: sensor.solar_analytics_forecast_coverage
+                name: Forecast coverage
+              - entity: sensor.solar_analytics_actual_coverage
+                name: Actual coverage
+              - entity: sensor.solar_analytics_paired_coverage
+                name: Paired coverage
+              - entity: sensor.solar_analytics_analytics_lineage
+                name: Analytics lineage

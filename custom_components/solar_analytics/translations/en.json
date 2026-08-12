@@ -56,6 +56,51 @@
       }
     }
   },
+  "exceptions": {
+    "storage_failure": {
+      "message": "Solar Analytics storage failed with {error_type}. Analytics remain unavailable until the underlying SQLite store recovers."
+    }
+  },
+  "issues": {
+    "canonical_actual_mismatch": {
+      "title": "Solar Analytics actual PV sensor mismatch",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Reconfigure Solar Analytics",
+            "description": "One of the actual-PV sensors configured for Solar Analytics is missing or does not have the expected device_class/unit ({reason}). Open Settings \u2192 Devices & Services \u2192 Solar Analytics \u2192 Reconfigure to choose different sensors, then acknowledge here."
+          }
+        }
+      }
+    },
+    "binding_changed": {
+      "title": "Energy dashboard Forecast.Solar entry changed",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Confirm the new Forecast.Solar entry",
+            "description": "The Home Assistant Energy dashboard now points at a different Forecast.Solar config entry ({reason}). Open Settings \u2192 Devices & Services \u2192 Solar Analytics \u2192 Reconfigure to accept the new entry (or keep the previous one explicitly), then acknowledge here."
+          }
+        }
+      }
+    },
+    "binding_unavailable": {
+      "title": "Solar Analytics has no Energy dashboard solar source",
+      "description": "The Home Assistant Energy dashboard does not have a solar source configured. Add one in Settings \u2192 Dashboards \u2192 Energy, or reconfigure Solar Analytics to point at a specific Forecast.Solar config entry."
+    },
+    "binding_ambiguous": {
+      "title": "Solar Analytics cannot pick a single Forecast.Solar source",
+      "description": "The Home Assistant Energy dashboard has zero or more than one solar source, or the selected source references zero or more than one Forecast.Solar config entry ({reason}). Fix the Energy dashboard configuration, or reconfigure Solar Analytics to pin a specific Forecast.Solar entry."
+    },
+    "native_entry_unavailable": {
+      "title": "Forecast.Solar config entry is not loaded",
+      "description": "The Forecast.Solar config entry Solar Analytics is bound to is unavailable ({reason}). Ensure the Forecast.Solar integration is installed and loaded, then reload Solar Analytics."
+    },
+    "unsupported_native_contract": {
+      "title": "Home Assistant Forecast.Solar contract is not supported",
+      "description": "Solar Analytics could not read the native Forecast.Solar profile from this Home Assistant version ({reason}). Upgrade Home Assistant to a supported release, or file an issue with the diagnostics attached."
+    }
+  },
   "entity": {
     "sensor": {
       "actual_pv_power": {"name": "Actual PV power"},

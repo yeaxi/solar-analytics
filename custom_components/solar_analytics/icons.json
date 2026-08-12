@@ -1,0 +1,76 @@
+{
+  "entity": {
+    "sensor": {
+      "actual_pv_power": {"default": "mdi:solar-power"},
+      "native_modules_power": {"default": "mdi:solar-panel-large"},
+      "forecast_solar_power": {"default": "mdi:weather-sunny"},
+      "vrm_forecast_power": {"default": "mdi:solar-power-variant"},
+      "analysis_status": {
+        "default": "mdi:chart-bell-curve",
+        "state": {
+          "ready": "mdi:check-decagram",
+          "insufficient_data": "mdi:progress-clock",
+          "native_source_unavailable": "mdi:alert-circle-outline",
+          "native_source_stale": "mdi:clock-alert-outline",
+          "unsupported_native_contract": "mdi:alert-octagon-outline",
+          "actual_source_stale": "mdi:clock-alert-outline",
+          "actual_source_unavailable": "mdi:alert-circle-outline",
+          "binding_unavailable": "mdi:link-off",
+          "binding_ambiguous": "mdi:link-variant-off",
+          "binding_changed": "mdi:swap-horizontal",
+          "canonical_actual_mismatch": "mdi:alert-outline",
+          "native_entry_unavailable": "mdi:link-off",
+          "storage_failure": "mdi:database-alert-outline"
+        }
+      },
+      "native_source_status": {
+        "default": "mdi:source-branch",
+        "state": {
+          "ok": "mdi:source-branch-check",
+          "native_source_unavailable": "mdi:source-branch-remove",
+          "native_source_stale": "mdi:source-branch-refresh"
+        }
+      },
+      "forecast_coverage": {"default": "mdi:chart-donut"},
+      "actual_coverage": {"default": "mdi:chart-donut-variant"},
+      "paired_coverage": {"default": "mdi:link-variant"},
+      "lineage": {"default": "mdi:source-commit"},
+      "current_limitation": {
+        "default": "mdi:transmission-tower-off",
+        "state": {
+          "not_claimed": "mdi:checkbox-blank-circle-outline",
+          "curtailment": "mdi:transmission-tower-off",
+          "external_control": "mdi:remote",
+          "inverter_limitation": "mdi:alert-outline"
+        }
+      },
+      "last_insight": {"default": "mdi:lightbulb-alert-outline"},
+      "insight_json": {"default": "mdi:code-json"},
+      "accuracy": {
+        "default": "mdi:chart-line",
+        "state": {
+          "ready": "mdi:chart-line",
+          "insufficient_data": "mdi:progress-clock"
+        }
+      },
+      "daily_comparison": {"default": "mdi:calendar-range"},
+      "future_profile": {
+        "default": "mdi:chart-timeline-variant",
+        "state": {
+          "ready": "mdi:chart-timeline-variant",
+          "unavailable": "mdi:chart-timeline-variant-shimmer"
+        }
+      },
+      "heatmap": {"default": "mdi:heatmap"},
+      "last_updated": {"default": "mdi:update"}
+    },
+    "binary_sensor": {
+      "pv_performance_analysis_valid": {"default": "mdi:solar-power"},
+      "near_zero_anomaly": {"default": "mdi:solar-power"},
+      "possible_underperformance": {"default": "mdi:solar-power"},
+      "storm_follow_up": {"default": "mdi:solar-power"},
+      "data_quality_problem": {"default": "mdi:solar-power"},
+      "curtailment_detected": {"default": "mdi:solar-power"}
+    }
+  }
+}
