@@ -1,10 +1,36 @@
 [project]
 name = "solar-analytics"
 version = "0.1.0"
-description = "Deterministic Solar Analytics engine for Home Assistant"
+description = "Reusable, read-only Solar Analytics custom integration for Home Assistant"
 requires-python = ">=3.11"
 dependencies = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+show_error_codes = true
+follow_imports = "silent"
+
+# Modules that touch Home Assistant internals are only fully typeable with
+# HA installed. CI runs strict mypy against the pure modules listed under
+# ``files`` and silently follows imports into HA-adjacent siblings without
+# reporting on them; hassfest and pytest cover their correctness.
+files = [
+    "custom_components/solar_analytics/const.py",
+    "custom_components/solar_analytics/entity_contract.py",
+    "custom_components/solar_analytics/migration.py",
+    "custom_components/solar_analytics/native.py",
+    "custom_components/solar_analytics/v2_metrics.py",
+    "custom_components/solar_analytics/storage_v2.py",
+    "tools/pv_soak_checkpoint.py",
+]
+
+[[tool.mypy.overrides]]
+module = ["homeassistant.*", "voluptuous"]
+ignore_missing_imports = true

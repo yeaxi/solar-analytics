@@ -19,7 +19,7 @@ import stat
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 BASELINE_UTC = "2026-08-03T19:28:33Z"
 SCHEMA_VERSION = 2
@@ -172,12 +172,13 @@ def validate_collector_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         obj = _mapping(table_obj, f"sqlite.tables.{table}")
         if obj.get("present") is not True:
             raise CheckpointValidationError(f"sqlite table not present: {table}")
-        if not isinstance(obj.get("rows"), int) or obj.get("rows") < 0:
+        rows = obj.get("rows")
+        if not isinstance(rows, int) or rows < 0:
             raise CheckpointValidationError(
                 f"sqlite.tables.{table}.rows must be a non-negative integer"
             )
 
-    return json.loads(json.dumps(root, ensure_ascii=False))
+    return cast(dict[str, Any], json.loads(json.dumps(root, ensure_ascii=False)))
 
 
 def _blockers(payload: Mapping[str, Any]) -> list[str]:

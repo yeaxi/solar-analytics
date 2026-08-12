@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Final
+from typing import Any, Final, cast
 
 _MANIFEST_PATH: Final = Path(__file__).with_name("manifest.json")
 
 
-def _load_manifest() -> dict[str, object]:
+def _load_manifest() -> dict[str, Any]:
     """Return the parsed manifest.json contents.
 
     Manifest reads happen exactly once at import time. HA calls
@@ -25,7 +25,7 @@ def _load_manifest() -> dict[str, object]:
     """
 
     with _MANIFEST_PATH.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+        return cast(dict[str, Any], json.load(handle))
 
 
 _MANIFEST: Final = _load_manifest()
