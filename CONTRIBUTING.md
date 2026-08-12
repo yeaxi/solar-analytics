@@ -91,3 +91,27 @@ Open a bug report using the template under
 `.github/ISSUE_TEMPLATE/bug_report.md`. Please attach the diagnostics JSON
 downloaded from **Settings → Devices & Services → Solar Analytics →
 three-dot menu → Download diagnostics** instead of pasting raw logs.
+
+## Repository-owner one-time setup
+
+Two HACS validators can only be satisfied by settings on the GitHub
+repository itself, not by files in the tree. The owner needs to set them
+once:
+
+- **Description.** GitHub → repository → About → set to something like
+  "Read-only, reusable Solar Analytics custom integration for Home
+  Assistant".
+- **Topics.** GitHub → repository → About → topics → add at least
+  `home-assistant`, `hacs`, `custom-component`, `integration`,
+  `solar`, `forecast-solar`.
+
+Equivalent commands if you prefer the CLI:
+
+```bash
+gh repo edit yeaxi/solar-analytics \
+  --description "Read-only, reusable Solar Analytics custom integration for Home Assistant" \
+  --add-topic home-assistant,hacs,custom-component,integration,solar,forecast-solar
+```
+
+These are one-time GitHub-side settings; they do not require a code change
+after the first run.
