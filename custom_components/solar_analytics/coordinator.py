@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import functools
 import logging
-from collections.abc import Mapping
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -35,11 +34,9 @@ from .const import (
 from .native import NATIVE_ADAPTER_VERSION, NATIVE_CONTRACT_VERSION
 from .native_adapter import ForecastSolarNativeAdapter, NativeObservation, NativeRead
 from .payload import build_payload
+from .reconciliation import reconcile_energy_counter, reconcile_intervals, rollup_daily
 from .storage_v2 import METRIC_VERSION, NORMALIZATION_VERSION, SolarAnalyticsV2Store, StorageError
 from .v2_metrics import (
-    MIN_ACTUAL_COVERAGE,
-    MIN_FORECAST_COVERAGE,
-    ROLLING_DAYS,
     ActualState,
     compute_accuracy,
     previous_slots_to_finalize,
@@ -447,10 +444,16 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             actual_power.observed_at_utc or now_utc,
             actual_power.value if actual_power.valid else None,
         )
-        reconciliation_status = self._record_energy_counter_sync(actual_energy, now_utc)
+        reconciliation_status = reconcile_energy_counter(
+            self.store, actual_energy=actual_energy, now_utc=now_utc, tz=self.time_zone
+        )
         if observation is not None and lineage_id:
-            self._process_recent_intervals_sync(lineage_id, now_utc)
-        daily_rows = self._process_daily_sync(lineage_id, now_utc) if lineage_id else []
+            reconcile_intervals(
+                self.store, lineage_id=lineage_id, now_utc=now_utc, tz=self.time_zone
+            )
+        daily_rows = rollup_daily(
+            self.store, lineage_id=lineage_id, now_utc=now_utc, tz=self.time_zone
+        )
         accuracy = compute_accuracy(
             daily_rows, today_local=now_utc.astimezone(self.time_zone).date()
         )
@@ -472,217 +475,6 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             lineage_id=lineage_id,
             reconciliation_status=reconciliation_status,
             now_utc=now_utc,
-        )
-
-    def _record_energy_counter_sync(self, actual_energy: ActualState, now_utc: datetime) -> str:
-        if not actual_energy.valid:
-            return actual_energy.reason or actual_energy.status
-        local_date = now_utc.astimezone(self.time_zone).date().isoformat()
-        key = f"energy_counter_anchor:{local_date}"
-        anchor = self.store.get_runtime(key)
-        if not isinstance(anchor, Mapping):
-            self.store.set_runtime(
-                key,
-                {
-                    "value_kwh": actual_energy.value,
-                    "observed_at_utc": _iso(actual_energy.observed_at_utc),
-                },
-            )
-            return "anchor_created"
-        try:
-            anchor_value = float(anchor["value_kwh"])
-            delta = float(actual_energy.value) - anchor_value
-            anchor_time = _parse_iso(anchor.get("observed_at_utc")) or now_utc
-        except (KeyError, TypeError, ValueError):
-            self.store.set_runtime(
-                key,
-                {
-                    "value_kwh": actual_energy.value,
-                    "observed_at_utc": _iso(actual_energy.observed_at_utc),
-                },
-            )
-            return "anchor_reset_invalid"
-        if delta < -0.05:
-            self.store.set_runtime(
-                key,
-                {
-                    "value_kwh": actual_energy.value,
-                    "observed_at_utc": _iso(actual_energy.observed_at_utc),
-                },
-            )
-            self.store.set_runtime(f"reconciliation_status:{local_date}", "counter_reset_detected")
-            return "counter_reset_detected"
-        integral = self.store.integrate_accumulators(
-            anchor_time, actual_energy.observed_at_utc or now_utc
-        )
-        if integral.get("energy_wh") is None:
-            status = "counter_only_no_power_coverage"
-        else:
-            power_kwh = float(integral["energy_wh"]) / 1000.0
-            tolerance = max(0.1, 0.10 * max(abs(delta), abs(power_kwh), 1.0))
-            status = (
-                "reconciled" if abs(delta - power_kwh) <= tolerance else "reconciliation_mismatch"
-            )
-        self.store.set_runtime(f"reconciliation_status:{local_date}", status)
-        return status
-
-    def _process_recent_intervals_sync(self, lineage_id: str, now_utc: datetime) -> None:
-        """Join immutable morning snapshot cells to integrated actual power."""
-
-        today = now_utc.astimezone(self.time_zone).date()
-        slots = self.store.list_snapshot_slots(lineage_id=lineage_id, snapshot_type="morning")
-        for slot in slots:
-            try:
-                local_day = date.fromisoformat(str(slot["target_local_date"]))
-            except ValueError:
-                continue
-            if local_day > today or not bool(slot.get("admissible")):
-                continue
-            for row in self.store.snapshot_periods(int(slot["snapshot_slot_id"])):
-                if not bool(row.get("valid")):
-                    continue
-                start = _parse_iso(row.get("interval_start_utc"))
-                end = _parse_iso(row.get("interval_end_utc"))
-                if start is None or end is None or end > now_utc or end <= start:
-                    continue
-                day_start = datetime.combine(local_day, time.min, tzinfo=self.time_zone).astimezone(
-                    UTC
-                )
-                day_end = datetime.combine(
-                    local_day + timedelta(days=1), time.min, tzinfo=self.time_zone
-                ).astimezone(UTC)
-                # A period crossing a local day boundary is not silently assigned.
-                if start < day_start or end > day_end:
-                    continue
-                duration = (end - start).total_seconds()
-                actual = self.store.integrate_accumulators(start, end)
-                covered = min(float(actual.get("covered_seconds") or 0.0), duration)
-                actual_energy = actual.get("energy_wh")
-                actual_valid = (
-                    covered >= duration * MIN_ACTUAL_COVERAGE and actual_energy is not None
-                )
-                paired_valid = actual_valid
-                reason = (
-                    "paired"
-                    if paired_valid
-                    else ("actual_gap" if covered > 0 else "actual_missing")
-                )
-                interval_reconciliation = (
-                    self.store.get_runtime(f"reconciliation_status:{local_day.isoformat()}")
-                    or "not_observed"
-                )
-                self.store.upsert_interval(
-                    {
-                        "lineage_id": lineage_id,
-                        "interval_start_utc": start.isoformat(),
-                        "interval_end_utc": end.isoformat(),
-                        "target_local_date": local_day.isoformat(),
-                        "forecast_energy_wh": float(row["energy_wh"]),
-                        "actual_energy_wh": float(actual_energy)
-                        if actual_energy is not None and actual_valid
-                        else None,
-                        "eligible_seconds": duration,
-                        "actual_covered_seconds": covered,
-                        "forecast_valid": True,
-                        "actual_valid": actual_valid,
-                        "paired_valid": paired_valid,
-                        "validity_reason": reason,
-                        "reconciliation_status": interval_reconciliation,
-                    }
-                )
-
-    def _process_daily_sync(
-        self, lineage_id: str | None, now_utc: datetime
-    ) -> list[dict[str, Any]]:
-        if not lineage_id:
-            return []
-        today = now_utc.astimezone(self.time_zone).date()
-        slots = self.store.list_snapshot_slots(lineage_id=lineage_id, snapshot_type="morning")
-        for slot in slots:
-            try:
-                local_day = date.fromisoformat(str(slot["target_local_date"]))
-            except ValueError:
-                continue
-            if local_day >= today:
-                continue
-            if not bool(slot.get("admissible")):
-                self.store.upsert_daily(
-                    {
-                        "lineage_id": lineage_id,
-                        "local_date": local_day.isoformat(),
-                        "morning_slot_id": slot["snapshot_slot_id"],
-                        "reason": "morning_snapshot_not_admissible",
-                    }
-                )
-                continue
-            intervals = [
-                row
-                for row in self.store.list_intervals(
-                    lineage_id=lineage_id, local_date=local_day.isoformat()
-                )
-                if row["interval_end_utc"] <= now_utc.isoformat()
-            ]
-            day_seconds = (
-                datetime.combine(local_day + timedelta(days=1), time.min, tzinfo=self.time_zone)
-                - datetime.combine(local_day, time.min, tzinfo=self.time_zone)
-            ).total_seconds()
-            forecast_seconds = sum(
-                float(row["eligible_seconds"] or 0.0) for row in intervals if row["forecast_valid"]
-            )
-            actual_seconds = sum(float(row["actual_covered_seconds"] or 0.0) for row in intervals)
-            paired_seconds = sum(
-                float(row["eligible_seconds"] or 0.0) for row in intervals if row["paired_valid"]
-            )
-            forecast_kwh = (
-                sum(
-                    float(row["forecast_energy_wh"] or 0.0)
-                    for row in intervals
-                    if row["forecast_valid"]
-                )
-                / 1000.0
-            )
-            actual_kwh = (
-                sum(
-                    float(row["actual_energy_wh"] or 0.0)
-                    for row in intervals
-                    if row["paired_valid"]
-                )
-                / 1000.0
-            )
-            forecast_coverage = forecast_seconds / day_seconds if day_seconds else 0.0
-            actual_coverage = actual_seconds / day_seconds if day_seconds else 0.0
-            paired_coverage = paired_seconds / day_seconds if day_seconds else 0.0
-            valid = (
-                forecast_coverage >= MIN_FORECAST_COVERAGE
-                and actual_coverage >= MIN_ACTUAL_COVERAGE
-                and paired_coverage >= MIN_ACTUAL_COVERAGE
-                and bool(intervals)
-            )
-            reason = "valid_paired_day" if valid else "coverage_below_gate"
-            signed = actual_kwh - forecast_kwh if valid else None
-            reconciliation_status = (
-                self.store.get_runtime(f"reconciliation_status:{local_day.isoformat()}")
-                or "not_observed"
-            )
-            self.store.upsert_daily(
-                {
-                    "lineage_id": lineage_id,
-                    "local_date": local_day.isoformat(),
-                    "morning_slot_id": slot["snapshot_slot_id"],
-                    "forecast_coverage": forecast_coverage,
-                    "actual_coverage": actual_coverage,
-                    "paired_coverage": paired_coverage,
-                    "valid_paired_day": valid,
-                    "reason": reason,
-                    "actual_kwh": actual_kwh if valid else None,
-                    "forecast_kwh": forecast_kwh if valid else None,
-                    "signed_error_kwh": signed,
-                    "absolute_error_kwh": abs(signed) if signed is not None else None,
-                    "reconciliation_status": reconciliation_status,
-                }
-            )
-        return self.store.list_daily(
-            lineage_id=lineage_id, since=(today - timedelta(days=ROLLING_DAYS + 2)).isoformat()
         )
 
     def current_native_forecast_contract(self) -> dict[str, Any]:

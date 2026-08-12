@@ -7,7 +7,18 @@ dependencies = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# The fast suite ignores tests/hass_integration/ because that directory installs
+# stub HA modules at import time (via a tests-local fixture) and requires the
+# real ``pytest-homeassistant-custom-component`` + Home Assistant Core install
+# for its own fixtures. Running both in a single invocation would let the
+# stubs and the real HA modules collide in ``sys.modules``. CI's integration
+# job explicitly runs ``pytest tests/hass_integration/`` in a separate
+# Python process; contributors can too.
+addopts = "-q --ignore=tests/hass_integration -p no:homeassistant"
+asyncio_mode = "auto"
+markers = [
+    "hass_integration: exercises Solar Analytics against a real Home Assistant runtime",
+]
 
 [tool.mypy]
 python_version = "3.11"
@@ -26,6 +37,7 @@ files = [
     "custom_components/solar_analytics/entity_contract.py",
     "custom_components/solar_analytics/migration.py",
     "custom_components/solar_analytics/native.py",
+    "custom_components/solar_analytics/reconciliation.py",
     "custom_components/solar_analytics/v2_metrics.py",
     "custom_components/solar_analytics/storage_v2.py",
     "tools/pv_soak_checkpoint.py",
@@ -34,3 +46,9 @@ files = [
 [[tool.mypy.overrides]]
 module = ["homeassistant.*", "voluptuous"]
 ignore_missing_imports = true
+# Home Assistant Core's own source uses PEP 695 ``type`` statements that mypy
+# only understands on Python 3.12+; we type-check at 3.11 so we cannot parse
+# those files here. follow_imports = skip stops mypy from analysing them at
+# all, which is fine because our own files declare their HA imports via
+# ignore_missing_imports.
+follow_imports = "skip"

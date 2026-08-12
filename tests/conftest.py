@@ -34,7 +34,7 @@ def _register_solar_analytics_path_alias() -> None:
     package.__path__ = [str(_COMPONENT_DIR)]
     sys.modules["solar_analytics"] = package
 
-    for helper in ("native", "storage_v2", "v2_metrics", "entity_contract"):
+    for helper in ("native", "storage_v2", "v2_metrics", "entity_contract", "reconciliation"):
         module_path = _COMPONENT_DIR / f"{helper}.py"
         spec = importlib.util.spec_from_file_location(f"solar_analytics.{helper}", module_path)
         assert spec is not None and spec.loader is not None
