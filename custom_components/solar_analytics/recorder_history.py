@@ -2,10 +2,10 @@
 
 Read-only by construction. This module calls exactly one Recorder API,
 ``statistics_during_period``, for exactly one statistic id, dispatched on the
-Recorder's own executor. It never opens the live ``home-assistant_v2.db``
-itself: a second connection from the integration process is a WAL and locking
-hazard and bypasses Home Assistant's session management. It never calls a
-Recorder write API such as ``async_import_statistics`` or
+Recorder's own executor. It never opens the live Recorder SQLite file itself:
+a second connection from the integration process is a WAL and locking hazard
+and bypasses Home Assistant's session management. It never calls a Recorder
+write API such as ``async_import_statistics`` or
 ``async_add_external_statistics``.
 
 Long-term ``statistics`` is the only place months of actual PV history live.

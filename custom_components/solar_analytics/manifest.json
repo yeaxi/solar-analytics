@@ -1,6 +1,7 @@
 {
   "domain": "solar_analytics",
   "name": "Solar Analytics",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@yeaxi"],
   "config_flow": true,
   "dependencies": ["energy", "forecast_solar"],
