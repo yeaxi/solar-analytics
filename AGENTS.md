@@ -48,4 +48,4 @@ The three stages of a soak run must stay separated:
 
 ## Project-local references
 
-Detailed architecture references live under `docs/architecture/`. This `AGENTS.md` is the short policy source; the reference copies do not authorize deployment or provider/config mutations. `README.md` is the user-facing document; `CONTRIBUTING.md` is the contributor-facing document.
+Detailed architecture references live under `docs/architecture/` and are published with the rest of the docs at https://yeaxi.github.io/solar-analytics/. This `AGENTS.md` is the short policy source; the reference copies do not authorize deployment or provider/config mutations. `README.md` is the user-facing document; `CONTRIBUTING.md` is the contributor-facing document.

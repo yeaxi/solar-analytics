@@ -5,11 +5,16 @@ integration; contributions that align with its scope are very welcome, and
 contributions that expand its scope are welcome only after a design
 discussion in an issue first.
 
+User-facing install and bug-report steps live in
+[README.md](https://github.com/yeaxi/solar-analytics/blob/main/README.md).
+The published docs site is
+<https://yeaxi.github.io/solar-analytics/>.
+
 ## Scope guardrails
 
 Before opening a PR, please confirm the change fits inside the project's
 non-negotiable invariants (also documented in
-[`AGENTS.md`](AGENTS.md)):
+[`AGENTS.md`](https://github.com/yeaxi/solar-analytics/blob/main/AGENTS.md)):
 
 - **Read-only.** No `hass.services.async_call`, no `runtime.async_refresh()`
   on other integrations, no writes to the recorder, no HTTP to any provider
@@ -46,6 +51,23 @@ ruff format --check .
 All four should pass before you push. CI runs the same commands on Python
 3.11 and 3.12.
 
+## Docs site
+
+Preview the published docs locally:
+
+```bash
+python3 -m pip install --user -r requirements-docs.txt
+mkdocs serve
+```
+
+`mkdocs build --strict` must pass before you push. CI runs it on every
+pull request and publishes <https://yeaxi.github.io/solar-analytics/>
+from `main`.
+
+README.md, CONTRIBUTING.md, and AGENTS.md stay the source files. The
+MkDocs pages include them. Architecture papers live under
+`docs/architecture/`.
+
 ## Repository layout
 
 - `custom_components/solar_analytics/` — the shipping
@@ -54,7 +76,7 @@ All four should pass before you push. CI runs the same commands on Python
   dependency; the HA stack is stubbed at import time when needed.
 - `tools/` — local read-only analyzers (soak checkpoint validator).
 - `scripts/` — local read-only report scripts.
-- `docs/architecture/` — design references.
+- `docs/` — MkDocs source. Architecture papers are in `docs/architecture/`.
 
 ## Coding conventions
 
@@ -80,6 +102,7 @@ The pull request template covers this, but for quick reference:
 
 - Tests pass locally (`pytest`, `ruff check`, `ruff format --check`,
   `compileall`).
+- `mkdocs build --strict` is clean if you touched docs.
 - `CHANGELOG.md` has an entry under `## [Unreleased]`.
 - `README.md` and `translations/*.json` updated if the change is
   user-facing.
@@ -104,6 +127,9 @@ once:
 - **Topics.** GitHub → repository → About → topics → add at least
   `home-assistant`, `hacs`, `custom-component`, `integration`,
   `solar`, `forecast-solar`.
+- **GitHub Pages.** Settings → Pages → Build and deployment → Source:
+  GitHub Actions. Needed once so the docs workflow can publish
+  <https://yeaxi.github.io/solar-analytics/>.
 
 Equivalent commands if you prefer the CLI:
 
@@ -113,5 +139,6 @@ gh repo edit yeaxi/solar-analytics \
   --add-topic home-assistant,hacs,custom-component,integration,solar,forecast-solar
 ```
 
-These are one-time GitHub-side settings; they do not require a code change
-after the first run.
+Pages source must be set in the GitHub UI. These are one-time
+GitHub-side settings; they do not require a code change after the first
+run.
