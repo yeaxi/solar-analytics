@@ -116,17 +116,42 @@ def _run_day(
     return row, intervals
 
 
-def test_night_cell_crossing_local_midnight_never_reaches_the_daily_gate(
+def test_night_cell_crossing_local_midnight_is_counted_for_the_local_day(
     coordinator_module, tmp_path: Path
 ) -> None:
-    """The zero-Wh overnight cell is dropped for both adjacent days, capping coverage."""
+    """The zero-Wh overnight cell is clipped at midnight, so a normal day clears the gate."""
 
     row, intervals = _run_day(coordinator_module, tmp_path, date(2026, 8, 10), KYIV)
 
-    assert len(intervals) == SUNSET_HOUR - SUNRISE_HOUR
-    assert sum(float(item["eligible_seconds"]) for item in intervals) == 15 * 3600
-    assert row["forecast_coverage"] == pytest.approx(0.625)
-    assert row["actual_coverage"] == pytest.approx(0.625)
-    assert row["paired_coverage"] == pytest.approx(0.625)
-    assert bool(row["valid_paired_day"]) is False
-    assert row["reason"] == "coverage_below_gate"
+    daylight_cells = SUNSET_HOUR - SUNRISE_HOUR
+    assert len(intervals) == daylight_cells + 2
+    assert sum(float(item["eligible_seconds"]) for item in intervals) == 86400
+    assert row["forecast_coverage"] == pytest.approx(1.0)
+    assert row["actual_coverage"] == pytest.approx(1.0)
+    assert row["paired_coverage"] == pytest.approx(1.0)
+    assert bool(row["valid_paired_day"]) is True
+    assert row["reason"] == "valid_paired_day"
+
+
+def test_spring_forward_day_is_measured_against_23_hours(
+    coordinator_module, tmp_path: Path
+) -> None:
+    row, intervals = _run_day(coordinator_module, tmp_path, date(2026, 3, 29), KYIV)
+
+    assert sum(float(item["eligible_seconds"]) for item in intervals) == 82800
+    assert row["forecast_coverage"] == pytest.approx(1.0)
+    assert row["paired_coverage"] == pytest.approx(1.0)
+    assert bool(row["valid_paired_day"]) is True
+
+
+def test_fall_back_day_is_measured_against_25_hours_and_stays_clamped(
+    coordinator_module, tmp_path: Path
+) -> None:
+    row, intervals = _run_day(coordinator_module, tmp_path, date(2026, 10, 25), KYIV)
+
+    assert sum(float(item["eligible_seconds"]) for item in intervals) == 90000
+    assert row["forecast_coverage"] == pytest.approx(1.0)
+    assert row["forecast_coverage"] <= 1.0
+    assert row["actual_coverage"] <= 1.0
+    assert row["paired_coverage"] <= 1.0
+    assert bool(row["valid_paired_day"]) is True

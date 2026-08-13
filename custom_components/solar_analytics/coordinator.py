@@ -12,7 +12,7 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Mapping
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -32,7 +32,12 @@ from .const import (
     DOMAIN,
     NAME,
 )
-from .native import NATIVE_ADAPTER_VERSION, NATIVE_CONTRACT_VERSION
+from .native import (
+    NATIVE_ADAPTER_VERSION,
+    NATIVE_CONTRACT_VERSION,
+    clip_period_to_local_date,
+    local_day_bounds_utc,
+)
 from .native_adapter import ForecastSolarNativeAdapter, NativeObservation, NativeRead
 from .payload import build_payload
 from .storage_v2 import METRIC_VERSION, NORMALIZATION_VERSION, SolarAnalyticsV2Store, StorageError
@@ -543,16 +548,15 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 start = _parse_iso(row.get("interval_start_utc"))
                 end = _parse_iso(row.get("interval_end_utc"))
-                if start is None or end is None or end > now_utc or end <= start:
+                if start is None or end is None:
                     continue
-                day_start = datetime.combine(local_day, time.min, tzinfo=self.time_zone).astimezone(
-                    UTC
+                window = clip_period_to_local_date(
+                    start, end, row.get("energy_wh"), local_day, tz=self.time_zone
                 )
-                day_end = datetime.combine(
-                    local_day + timedelta(days=1), time.min, tzinfo=self.time_zone
-                ).astimezone(UTC)
-                # A period crossing a local day boundary is not silently assigned.
-                if start < day_start or end > day_end:
+                if window is None:
+                    continue
+                start, end = window
+                if end > now_utc:
                     continue
                 duration = (end - start).total_seconds()
                 actual = self.store.integrate_accumulators(start, end)
@@ -622,10 +626,8 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 if row["interval_end_utc"] <= now_utc.isoformat()
             ]
-            day_seconds = (
-                datetime.combine(local_day + timedelta(days=1), time.min, tzinfo=self.time_zone)
-                - datetime.combine(local_day, time.min, tzinfo=self.time_zone)
-            ).total_seconds()
+            day_start, day_end = local_day_bounds_utc(local_day, self.time_zone)
+            day_seconds = (day_end - day_start).total_seconds()
             forecast_seconds = sum(
                 float(row["eligible_seconds"] or 0.0) for row in intervals if row["forecast_valid"]
             )
@@ -649,9 +651,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 / 1000.0
             )
-            forecast_coverage = forecast_seconds / day_seconds if day_seconds else 0.0
-            actual_coverage = actual_seconds / day_seconds if day_seconds else 0.0
-            paired_coverage = paired_seconds / day_seconds if day_seconds else 0.0
+            forecast_coverage = min(forecast_seconds / day_seconds, 1.0) if day_seconds else 0.0
+            actual_coverage = min(actual_seconds / day_seconds, 1.0) if day_seconds else 0.0
+            paired_coverage = min(paired_seconds / day_seconds, 1.0) if day_seconds else 0.0
             valid = (
                 forecast_coverage >= MIN_FORECAST_COVERAGE
                 and actual_coverage >= MIN_ACTUAL_COVERAGE
