@@ -17,7 +17,7 @@ Brief description of what this PR changes.
 
 ## Docs
 
-- README updated: yes / no / n/a
+- README / docs site updated: yes / no / n/a
 - CHANGELOG entry added: yes / no / n/a
 - Translations updated (`strings.json` + `translations/*.json`): yes / no / n/a
 

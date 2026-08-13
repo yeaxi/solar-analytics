@@ -35,6 +35,7 @@ env/
 *.zip
 build/
 dist/
+site/
 
 # Temporary reports/output
 reports/**/tmp/

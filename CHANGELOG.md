@@ -7,6 +7,7 @@ All notable changes to Solar Analytics are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- GitHub Pages docs site (MkDocs Material) at https://yeaxi.github.io/solar-analytics/.
 - Home Assistant brand assets at `custom_components/solar_analytics/brand/`
   (`icon.png` 256x256 and `icon@2x.png` 512x512) so HACS renders a proper icon
   for the integration and the "brands" validator passes without a
@@ -16,9 +17,13 @@ All notable changes to Solar Analytics are documented here. The format follows
   repeated identical statuses no longer log per 5-minute poll (silver-tier
   "log-when-unavailable" pattern).
 - `CONTRIBUTING.md` documents the one-time GitHub-side owner setup (repository
-  description + topics) that HACS validates against.
+  description, topics, and GitHub Pages source).
 
 ### Changed
+- README is now end-user only (install, setup, troubleshooting, bug reports).
+  Contributor, agent, and architecture docs stay in `CONTRIBUTING.md`,
+  `AGENTS.md`, and `docs/architecture/`.
+- `manifest.json` `documentation` URL now points at the docs site.
 - `hacs.json`: removed the invalid `"hacs"` key that made the HACS validator
   reject the manifest; explicitly declared `"zip_release": false`.
 

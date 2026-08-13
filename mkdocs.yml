@@ -1,0 +1,32 @@
+site_name: Solar Analytics
+site_url: https://yeaxi.github.io/solar-analytics/
+site_description: Read-only Home Assistant custom integration that compares PV output with Forecast.Solar
+repo_url: https://github.com/yeaxi/solar-analytics
+repo_name: yeaxi/solar-analytics
+edit_uri: ""
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - toc.follow
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      check_paths: true
+      base_path:
+        - .
+
+nav:
+  - Home: index.md
+  - Contributing: contributing.md
+  - Architecture:
+      - Overview: architecture/index.md
+      - Analytics architecture: architecture/native-forecast-solar-analytics-architecture.md
+      - Live compatibility: architecture/native-forecast-solar-live-compatibility.md
+      - Recorder and forecast contract: architecture/solar-analytics-recorder-and-forecast-contract.md
+  - Agent policy: agents.md
