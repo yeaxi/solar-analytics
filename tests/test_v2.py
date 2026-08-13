@@ -109,7 +109,6 @@ def test_day_boundary_clip_admits_the_zero_energy_night_and_rejects_energetic_cr
     assert clip_period_to_local_date(*inside, 900.0, target, tz=KYIV) == inside
 
     night = (datetime(2026, 8, 2, 17, tzinfo=UTC), datetime(2026, 8, 3, 2, tzinfo=UTC))
-    # The same native night cell feeds both local days, clipped at midnight.
     assert clip_period_to_local_date(*night, 0.0, target, tz=KYIV) == (day_start, night[1])
     assert clip_period_to_local_date(*night, 0.0, date(2026, 8, 2), tz=KYIV) == (
         night[0],

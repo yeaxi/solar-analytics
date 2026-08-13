@@ -295,7 +295,7 @@ def clip_period_to_local_date(
     local midnight, so such a cell is clipped to the day window and counted for
     both adjacent days; splitting 0 Wh across a boundary loses no energy. A
     crossing period that carries energy is excluded instead of being apportioned
-    by time. This is the single source of the day-boundary rule.
+    by time.
     """
 
     if start_utc is None or start_utc >= end_utc:
