@@ -231,6 +231,96 @@ def test_a_day_with_no_admissible_slot_does_not_stall_the_marker(
     store.close()
 
 
+def _analytics_fields(rows: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    return [
+        (
+            row["interval_start_utc"],
+            row["interval_end_utc"],
+            row["target_local_date"],
+            row["forecast_energy_wh"],
+            row["actual_energy_wh"],
+            row["eligible_seconds"],
+            row["actual_covered_seconds"],
+            row["actual_valid"],
+            row["paired_valid"],
+            row["validity_reason"],
+        )
+        for row in rows
+    ]
+
+
+def test_a_direct_upgrade_rewrites_rows_left_by_the_older_coverage_semantics(
+    coordinator_shell, tmp_path: Path
+) -> None:
+    """Rows written before the day-boundary fix carried 0.625 coverage and no pairing."""
+
+    days = [TODAY - timedelta(days=offset) for offset in (3, 2, 1)]
+    store, lineage_id = _seed(tmp_path, days)
+    counter = _CountingStore(store)
+    shell = coordinator_shell(store=counter, time_zone=KYIV)
+    now = _local_noon(TODAY)
+    shell._process_recent_intervals_sync(lineage_id, now)
+
+    store.db.execute(
+        "UPDATE v2_intervals SET actual_covered_seconds=eligible_seconds*0.625,"
+        "actual_energy_wh=NULL,actual_valid=0,paired_valid=0,validity_reason='actual_gap'"
+    )
+    store.db.execute("DELETE FROM v2_runtime_state WHERE key=?", (WATERMARK_RUNTIME_KEY,))
+    counter.windows.clear()
+
+    shell._process_recent_intervals_sync(lineage_id, now)
+
+    rows = store.list_intervals(lineage_id=lineage_id)
+    assert _days_touched(counter) == set(days)
+    assert len(rows) == len(days) * CELLS_PER_DAY
+    for row in rows:
+        assert row["actual_covered_seconds"] == pytest.approx(row["eligible_seconds"])
+        assert bool(row["paired_valid"]) is True
+        assert row["validity_reason"] == "paired"
+    store.close()
+
+
+def test_a_lost_marker_replays_the_same_rows_without_duplicating_them(
+    coordinator_shell, tmp_path: Path
+) -> None:
+    days = [TODAY - timedelta(days=offset) for offset in (2, 1)]
+    store, lineage_id = _seed(tmp_path, days)
+    shell = coordinator_shell(store=store, time_zone=KYIV)
+    now = _local_noon(TODAY)
+
+    shell._process_recent_intervals_sync(lineage_id, now)
+    first = _analytics_fields(store.list_intervals(lineage_id=lineage_id))
+    store.db.execute("DELETE FROM v2_runtime_state WHERE key=?", (WATERMARK_RUNTIME_KEY,))
+    shell._process_recent_intervals_sync(lineage_id, now)
+
+    assert _analytics_fields(store.list_intervals(lineage_id=lineage_id)) == first
+    assert _marker(store)["finalized_through"] == (TODAY - timedelta(days=1)).isoformat()
+    store.close()
+
+
+@pytest.mark.parametrize("dst_day", [date(2026, 3, 29), date(2026, 10, 25)])
+def test_a_dst_day_becomes_final_one_hour_after_its_own_midnight(
+    coordinator_shell, tmp_path: Path, dst_day: date
+) -> None:
+    """The 23-hour and 25-hour days must not be finalized 24 hours after midnight."""
+
+    store, lineage_id = _seed(tmp_path, [dst_day])
+    shell = coordinator_shell(store=store, time_zone=KYIV)
+    next_midnight = datetime.combine(dst_day + timedelta(days=1), time.min, tzinfo=KYIV)
+
+    shell._process_recent_intervals_sync(
+        lineage_id, (next_midnight + timedelta(minutes=45)).astimezone(UTC)
+    )
+    assert _marker(store) is None
+
+    shell._process_recent_intervals_sync(
+        lineage_id, (next_midnight + timedelta(hours=1)).astimezone(UTC)
+    )
+    assert _marker(store)["finalized_through"] == dst_day.isoformat()
+    assert len(store.list_intervals(lineage_id=lineage_id)) == CELLS_PER_DAY
+    store.close()
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
