@@ -80,7 +80,9 @@ MkDocs pages include them. Architecture papers live under
 - `tests/` — deterministic hermetic tests. No `pytest-homeassistant-custom-component`
   dependency; the HA stack is stubbed at import time when needed.
 - `tools/` — local read-only analyzers (soak checkpoint validator).
-- `scripts/` — local read-only report scripts.
+- `scripts/` — local read-only checks. `verify_import_idempotency.py` feeds a
+  synthetic year of hourly statistics through the real import three times and
+  fails if the row count or the total kWh moves.
 - `docs/` — MkDocs source. Architecture papers are in `docs/architecture/`.
 
 ## Coding conventions

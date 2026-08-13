@@ -56,9 +56,6 @@ ignore = [
 # throughout. Reformatting to full multi-line for stylistic reasons alone
 # would produce noisy churn in a file that is otherwise stable.
 "custom_components/solar_analytics/storage_v2.py" = ["E701", "E702"]
-# Local read-only report script that predates the reusability refactor;
-# stylistic-only warnings are ignored here to keep it as-is.
-"scripts/recorder_backfill_report.py" = ["PLR0124", "PLR1714"]
 
 [format]
 quote-style = "double"
