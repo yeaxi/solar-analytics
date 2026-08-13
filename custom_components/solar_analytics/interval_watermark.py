@@ -24,12 +24,15 @@ from .native import local_day_bounds_utc
 
 WATERMARK_RUNTIME_KEY = "interval_finalization_watermark"
 
-# Bump this to make every retained day rebuild once, whenever a change alters
-# the interval rows a finished day produces. It is deliberately separate from
-# the manifest version, METRIC_VERSION and NORMALIZATION_VERSION: those three
-# are part of the lineage contract key, so bumping one of them mints a fresh
-# lineage and throws away accuracy history.
-INTERVAL_BUILD_REVISION = "bounded-accumulator-window-v1"
+# This names the interval semantics a finished day is built with, so change it
+# only when a finished day would now produce different rows. The current value
+# is the day-boundary clipping that counts the zero-Wh overnight cell for both
+# adjacent days. A change that preserves every row, such as reading fewer
+# accumulator buckets for the same window, must not change it. The constant is
+# deliberately separate from the manifest version, METRIC_VERSION and
+# NORMALIZATION_VERSION: those three are part of the lineage contract key, so
+# bumping one of them mints a fresh lineage and throws away accuracy history.
+INTERVAL_BUILD_REVISION = "clipped-day-boundary-v1"
 
 # A local day counts as final one hour after its own local midnight has passed,
 # which leaves room for a late actual-power sample to land in the last bucket.
