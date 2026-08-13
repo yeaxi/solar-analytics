@@ -121,12 +121,19 @@ def test_day_boundary_clip_admits_the_zero_energy_night_and_rejects_energetic_cr
     assert clip_period_to_local_date(*inside, 0.0, date(2026, 8, 5), tz=KYIV) is None
 
 
-def test_schedule_is_fixed_local_time_and_dst_aware() -> None:
-    spring = daily_schedule(date(2026, 3, 28))
-    assert spring[0].scheduled_at_local.hour == 6
-    assert spring[0].scheduled_at_local.tzinfo is not None
-    assert spring[0].target_local_date == date(2026, 3, 29)
-    assert spring[0].scheduled_at_utc < spring[1].scheduled_at_utc
+def test_schedule_is_fixed_local_time_dst_aware_and_targets_the_next_day() -> None:
+    anchor = date(2026, 3, 28)
+    morning, day_ahead = daily_schedule(anchor)
+    assert (morning.snapshot_type, day_ahead.snapshot_type) == ("morning", "day_ahead")
+    assert morning.scheduled_at_local.hour == 6
+    assert day_ahead.scheduled_at_local.hour == 23
+    assert morning.scheduled_at_local.tzinfo is not None
+    assert morning.scheduled_at_utc < day_ahead.scheduled_at_utc
+
+    assert morning.scheduled_at_local.date() == anchor
+    assert day_ahead.scheduled_at_local.date() == anchor
+    assert morning.target_local_date == date(2026, 3, 29)
+    assert day_ahead.target_local_date == morning.target_local_date
 
     now = datetime(2026, 8, 3, 12, tzinfo=UTC)
     slots = previous_slots_to_finalize(now)

@@ -43,7 +43,7 @@ Use a durable table with a unique key:
 (provider, target_date, snapshot_type)
 ```
 
-`day_ahead` targets the next local date at the configured day-ahead snapshot hour in the user-selected analytics timezone (defaults 23:00). `morning` targets the current local date at the configured morning snapshot hour (defaults 06:00). Use an idempotent insert (`INSERT OR IGNORE` or equivalent) so a restart inside the polling window cannot duplicate a snapshot. Store provider, snapshot timestamp, target date, daily scalar, profile (only if real), selected provider parameters, source entity/identifier, and quality flags.
+Both snapshots are taken on D-1 in the user-selected analytics timezone, and both target the next local date, D. `morning` fires at the configured morning snapshot hour (defaults 06:00) and `day_ahead` fires at the configured day-ahead snapshot hour (defaults 23:00), so the morning snapshot is an early forecast of tomorrow rather than a view of the day in progress. `daily_schedule()` in `custom_components/solar_analytics/v2_metrics.py` returns both slots for one anchor date and stamps each with `target_local_date` one day after that anchor. Use an idempotent insert (`INSERT OR IGNORE` or equivalent) so a restart inside the polling window cannot duplicate a snapshot. Store provider, snapshot timestamp, target date, daily scalar, profile (only if real), selected provider parameters, source entity/identifier, and quality flags.
 
 ## 30-minute/DST normalization
 
