@@ -83,6 +83,9 @@ MkDocs pages include them. Architecture papers live under
 - `scripts/` — local read-only checks. `verify_import_idempotency.py` feeds a
   synthetic year of hourly statistics through the real import three times and
   fails if the row count or the total kWh moves.
+  `benchmark_accumulator_window.py` reads one one-hour window out of a year of
+  accumulator buckets three ways, prints rows fetched and query plans, and
+  fails if the arms disagree.
 - `docs/` — MkDocs source. Architecture papers are in `docs/architecture/`.
 
 ## Coding conventions
