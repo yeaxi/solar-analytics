@@ -54,6 +54,17 @@
         }
       },
       "daily_comparison": {"default": "mdi:calendar-range"},
+      "imported_actual_history": {
+        "default": "mdi:history",
+        "state": {
+          "uninitialized": "mdi:progress-clock",
+          "imported": "mdi:database-import-outline",
+          "no_statistics": "mdi:database-off-outline",
+          "no_actual_energy_entity": "mdi:link-off",
+          "recorder_unavailable": "mdi:database-alert-outline",
+          "import_failed": "mdi:alert-circle-outline"
+        }
+      },
       "future_profile": {
         "default": "mdi:chart-timeline-variant",
         "state": {

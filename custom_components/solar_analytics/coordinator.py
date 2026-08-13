@@ -32,6 +32,12 @@ from .const import (
     DOMAIN,
     NAME,
 )
+from .imported_actuals import (
+    IMPORT_PROVENANCE,
+    ImportedActualHistory,
+    build_imported_history,
+    import_window_utc,
+)
 from .native import (
     NATIVE_ADAPTER_VERSION,
     NATIVE_CONTRACT_VERSION,
@@ -39,7 +45,8 @@ from .native import (
     local_day_bounds_utc,
 )
 from .native_adapter import ForecastSolarNativeAdapter, NativeObservation, NativeRead
-from .payload import build_payload
+from .payload import build_imported_history_block, build_payload
+from .recorder_history import async_hourly_energy_statistics
 from .storage_v2 import METRIC_VERSION, NORMALIZATION_VERSION, SolarAnalyticsV2Store, StorageError
 from .v2_metrics import (
     MIN_ACTUAL_COVERAGE,
@@ -53,6 +60,7 @@ from .v2_metrics import (
 
 _LOGGER = logging.getLogger(__name__)
 UPDATE_INTERVAL = timedelta(minutes=5)
+IMPORT_STATE_KEY = "imported_actual_history"
 
 # Native binding statuses the coordinator surfaces as HA repair issues.
 # ``canonical_actual_mismatch`` and ``binding_changed`` are fixable via the
@@ -141,6 +149,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._day_ahead_unsub: Any | None = None
         self._last_native_read: NativeRead | None = None
         self._last_payload: dict[str, Any] | None = None
+        self._imported_history: dict[str, Any] = build_imported_history_block(
+            status="uninitialized", source_entity_id=None, rows=()
+        )
         self._initialized = False
         # Silver-tier "log when unavailable / log when recovered" state.
         # Holds the last reported native binding status so we log once per
@@ -165,7 +176,91 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A restart after a scheduled instant creates one terminal missed/blocked
         # slot; it never backfills with a later observation.
         await self._finalize_missed_slots()
+        await self._async_import_actual_history()
         self._initialized = True
+
+    async def _async_import_actual_history(self) -> None:
+        """Reconstruct historical actual production from long-term Recorder statistics.
+
+        Actual-only, and never wired into ``valid_paired_day`` or accuracy:
+        Home Assistant persists no historical forecast profile to pair against.
+        A failure here fails the claim, not the config entry, so the outcome is
+        recorded as a status and setup carries on.
+        """
+
+        entity_id = self.actual_energy_entity
+        if not entity_id:
+            self._imported_history = build_imported_history_block(
+                status="no_actual_energy_entity", source_entity_id=None, rows=()
+            )
+            return
+        now = datetime.now(UTC)
+        today = now.astimezone(self.time_zone).date()
+        try:
+            history = await self._async_read_actual_history(entity_id, today)
+            self._imported_history = await self.hass.async_add_executor_job(
+                functools.partial(self._store_imported_history_sync, history, entity_id, today, now)
+            )
+        except StorageError as err:
+            _LOGGER.warning("Solar Analytics historical actual import unavailable: %s", err)
+            self._imported_history = build_imported_history_block(
+                status="import_failed", source_entity_id=entity_id, rows=()
+            )
+
+    async def _async_read_actual_history(
+        self, entity_id: str, today: date
+    ) -> ImportedActualHistory | None:
+        """Return this run's reconstruction, or ``None`` when today's is already stored."""
+
+        state = await self.hass.async_add_executor_job(self.store.get_runtime, IMPORT_STATE_KEY)
+        if (
+            isinstance(state, Mapping)
+            and state.get("source_entity_id") == entity_id
+            and state.get("local_date") == today.isoformat()
+        ):
+            return None
+        start_utc, end_utc = import_window_utc(today, tz=self.time_zone)
+        rows = await async_hourly_energy_statistics(
+            self.hass, statistic_id=entity_id, start_utc=start_utc, end_utc=end_utc
+        )
+        if rows is None:
+            return ImportedActualHistory("recorder_unavailable", entity_id)
+        return build_imported_history(rows, source_entity_id=entity_id, tz=self.time_zone)
+
+    def _store_imported_history_sync(
+        self,
+        history: ImportedActualHistory | None,
+        entity_id: str,
+        today: date,
+        now_utc: datetime,
+    ) -> dict[str, Any]:
+        status = "uninitialized"
+        state = self.store.get_runtime(IMPORT_STATE_KEY)
+        if isinstance(state, Mapping):
+            status = str(state.get("status") or status)
+        if history is not None:
+            status = history.status
+            if history.days:
+                self.store.replace_imported_actual_daily(
+                    source_entity_id=entity_id,
+                    provenance=IMPORT_PROVENANCE,
+                    rows=history.as_storage_rows(),
+                    imported_at=now_utc,
+                )
+            self.store.set_runtime(
+                IMPORT_STATE_KEY,
+                {
+                    "source_entity_id": entity_id,
+                    "local_date": today.isoformat(),
+                    "status": status,
+                    "day_count": len(history.days),
+                },
+            )
+        return build_imported_history_block(
+            status=status,
+            source_entity_id=entity_id,
+            rows=self.store.list_imported_actual_daily(source_entity_id=entity_id),
+        )
 
     def _maintain_repair_issues(self, binding_status: str, reason: str | None) -> None:
         """Create or clear HA repair issues for user-actionable binding failures."""
@@ -476,6 +571,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             daily_rows=daily_rows,
             lineage_id=lineage_id,
             reconciliation_status=reconciliation_status,
+            imported_history=self._imported_history,
             now_utc=now_utc,
         )
 

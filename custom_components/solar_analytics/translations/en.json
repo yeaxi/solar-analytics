@@ -163,6 +163,17 @@
         }
       },
       "daily_comparison": {"name": "Daily comparison"},
+      "imported_actual_history": {
+        "name": "Imported actual history",
+        "state": {
+          "uninitialized": "Not imported yet",
+          "imported": "Imported",
+          "no_statistics": "No recorder statistics",
+          "no_actual_energy_entity": "No actual PV energy sensor",
+          "recorder_unavailable": "Recorder unavailable",
+          "import_failed": "Import failed"
+        }
+      },
       "future_profile": {
         "name": "Future profile",
         "state": {

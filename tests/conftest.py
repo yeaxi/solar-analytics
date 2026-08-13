@@ -35,7 +35,7 @@ def _register_solar_analytics_path_alias() -> None:
     package.__path__ = [str(_COMPONENT_DIR)]
     sys.modules["solar_analytics"] = package
 
-    for helper in ("native", "storage_v2", "v2_metrics", "entity_contract"):
+    for helper in ("native", "imported_actuals", "storage_v2", "v2_metrics", "entity_contract"):
         module_path = _COMPONENT_DIR / f"{helper}.py"
         spec = importlib.util.spec_from_file_location(f"solar_analytics.{helper}", module_path)
         assert spec is not None and spec.loader is not None
@@ -44,16 +44,13 @@ def _register_solar_analytics_path_alias() -> None:
         spec.loader.exec_module(module)
 
 
-def _load_coordinator_module():
-    """Import ``coordinator.py`` against a minimal Home Assistant stub.
+def _install_homeassistant_stubs() -> None:
+    """Install the minimal Home Assistant stack the component modules import.
 
-    The coordinator's module-level helpers and its synchronous store methods are
-    exercised without constructing a ``SolarAnalyticsCoordinator`` or a real
-    Home Assistant runtime.
+    Home Assistant is not a test dependency, so the modules under test are
+    imported against this stub. Anything a test needs to control (the recorder,
+    the issue registry) is replaced per test through ``sys.modules``.
     """
-
-    if "custom_components.solar_analytics.coordinator" in sys.modules:
-        return sys.modules["custom_components.solar_analytics.coordinator"]
 
     ha = types.ModuleType("homeassistant")
     ha_const = types.ModuleType("homeassistant.const")
@@ -113,20 +110,30 @@ def _load_coordinator_module():
     sys.modules["custom_components"] = parent
     sys.modules["custom_components.solar_analytics"] = package
 
-    spec = importlib.util.spec_from_file_location(
-        "custom_components.solar_analytics.coordinator",
-        _COMPONENT_DIR / "coordinator.py",
-    )
+
+def _load_component_module(name: str):
+    """Import one component module by file path against the Home Assistant stub."""
+
+    qualified = f"custom_components.solar_analytics.{name}"
+    if qualified in sys.modules:
+        return sys.modules[qualified]
+    _install_homeassistant_stubs()
+    spec = importlib.util.spec_from_file_location(qualified, _COMPONENT_DIR / f"{name}.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules["custom_components.solar_analytics.coordinator"] = module
+    sys.modules[qualified] = module
     spec.loader.exec_module(module)
     return module
 
 
 @pytest.fixture(scope="session")
 def coordinator_module():
-    return _load_coordinator_module()
+    return _load_component_module("coordinator")
+
+
+@pytest.fixture(scope="session")
+def recorder_history_module():
+    return _load_component_module("recorder_history")
 
 
 _register_solar_analytics_path_alias()

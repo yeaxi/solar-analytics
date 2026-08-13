@@ -338,12 +338,48 @@ def test_enum_sensor_options_include_actual_state(entities) -> None:
     assert "unavailable" in lookup["future_profile"].options
 
 
+def test_imported_history_sensor_is_a_separate_labelled_view(entities) -> None:
+    """Reconstructed history must never leak into the accuracy-bearing entities."""
+
+    sensor, _ = entities
+    lookup = {d.key: d for d in sensor.SENSOR_DESCRIPTIONS}
+    description = lookup["imported_actual_history"]
+    payload = {
+        "accuracy": {"status": "insufficient_data", "accuracy_ready": False},
+        "daily_points": [],
+        "imported_actual_history": {
+            "status": "imported",
+            "provenance": "reconstructed_from_recorder_statistics",
+            "day_count": 2,
+            "points": [["2026-08-01", 12.5, 1.0, 0], ["2026-08-02", 9.25, 1.0, 0]],
+        },
+    }
+
+    assert description.value_fn(payload) == "imported"
+    assert description.value_fn({}) == "uninitialized"
+    assert set(description.options) == {
+        "uninitialized",
+        "imported",
+        "no_statistics",
+        "no_actual_energy_entity",
+        "recorder_unavailable",
+        "import_failed",
+    }
+    attributes = description.attributes_fn(payload)
+    assert attributes["provenance"] == "reconstructed_from_recorder_statistics"
+    assert len(attributes["points"]) == 2
+    assert lookup["accuracy"].value_fn(payload) == "insufficient_data"
+    assert lookup["daily_comparison"].value_fn(payload) == "no_data"
+    assert "imported" not in lookup["analysis_status"].options
+
+
 def test_expected_diagnostic_entities_are_hidden_by_default(entities) -> None:
     sensor, binary_sensor = entities
     hidden = {d.key for d in sensor.SENSOR_DESCRIPTIONS if not d.entity_registry_enabled_default}
     assert "vrm_forecast_power" in hidden
     assert "insight_json" in hidden
     assert "heatmap" in hidden
+    assert "imported_actual_history" in hidden
     hidden_binary = {
         d.key for d in binary_sensor.BINARY_DESCRIPTIONS if not d.entity_registry_enabled_default
     }

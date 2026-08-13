@@ -24,6 +24,7 @@ follow_imports = "silent"
 files = [
     "custom_components/solar_analytics/const.py",
     "custom_components/solar_analytics/entity_contract.py",
+    "custom_components/solar_analytics/imported_actuals.py",
     "custom_components/solar_analytics/migration.py",
     "custom_components/solar_analytics/native.py",
     "custom_components/solar_analytics/v2_metrics.py",

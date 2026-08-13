@@ -236,7 +236,7 @@ def test_v2_storage_migrates_additively_and_slot_is_idempotent(tmp_path) -> None
 
     store = SolarAnalyticsV2Store(path)
     store.initialize()
-    assert store.schema_version() == 4
+    assert store.schema_version() == 5
     assert store.integrity_check() == "ok"
     assert store.db.execute("SELECT value FROM legacy_rows WHERE id=1").fetchone()[0] == "preserve"
 
@@ -342,7 +342,7 @@ def test_v2_accuracy_cache_migrates_refresh_rows_and_overwrites_latest(tmp_path)
 
     store = SolarAnalyticsV2Store(path)
     store.initialize()
-    assert store.schema_version() == 4
+    assert store.schema_version() == 5
     assert store.db.execute("SELECT count(*) FROM v2_accuracy_results").fetchone()[0] == 1
     assert store.latest_accuracy("lineage")["payload"] == {"generation": "new"}
 
@@ -356,6 +356,83 @@ def test_v2_accuracy_cache_migrates_refresh_rows_and_overwrites_latest(tmp_path)
     )
     assert store.db.execute("SELECT count(*) FROM v2_accuracy_results").fetchone()[0] == 1
     assert store.latest_accuracy("lineage")["payload"] == {"generation": "latest"}
+    store.close()
+
+
+_BACKFILL_TABLES = (
+    "v2_backfill_runs",
+    "v2_backfill_snapshots",
+    "v2_backfill_snapshot_intervals",
+    "v2_backfill_intervals",
+    "v2_backfill_daily_comparisons",
+    "v2_backfill_accuracy_results",
+)
+
+
+def _write_v4_database_with_backfill_tables(path) -> None:
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        db.execute("INSERT INTO meta VALUES('schema_version','4')")
+        db.execute("CREATE TABLE v2_backfill_runs(run_id TEXT PRIMARY KEY, status TEXT NOT NULL)")
+        db.execute(
+            "CREATE TABLE v2_backfill_snapshots(snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "run_id TEXT NOT NULL, FOREIGN KEY(run_id) REFERENCES v2_backfill_runs(run_id))"
+        )
+        db.execute(
+            "CREATE TABLE v2_backfill_snapshot_intervals(snapshot_id INTEGER NOT NULL, "
+            "interval_end_utc TEXT NOT NULL, PRIMARY KEY(snapshot_id, interval_end_utc), "
+            "FOREIGN KEY(snapshot_id) REFERENCES v2_backfill_snapshots(snapshot_id))"
+        )
+        for child in (
+            "v2_backfill_intervals",
+            "v2_backfill_daily_comparisons",
+            "v2_backfill_accuracy_results",
+        ):
+            db.execute(
+                f"CREATE TABLE {child}(run_id TEXT NOT NULL, local_date TEXT NOT NULL, "
+                f"PRIMARY KEY(run_id, local_date), "
+                f"FOREIGN KEY(run_id) REFERENCES v2_backfill_runs(run_id))"
+            )
+        db.execute("INSERT INTO v2_backfill_runs VALUES('run-1','complete')")
+        db.execute("INSERT INTO v2_backfill_snapshots(run_id) VALUES('run-1')")
+        db.execute("INSERT INTO v2_backfill_snapshot_intervals VALUES(1,'2026-08-03T01:00:00Z')")
+        for child in (
+            "v2_backfill_intervals",
+            "v2_backfill_daily_comparisons",
+            "v2_backfill_accuracy_results",
+        ):
+            db.execute(f"INSERT INTO {child} VALUES('run-1','2026-08-03')")
+        db.commit()
+
+
+def _table_names(store: SolarAnalyticsV2Store) -> set[str]:
+    return {
+        str(row[0])
+        for row in store.db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+
+
+def test_v4_database_drops_populated_backfill_tables_on_migration(tmp_path) -> None:
+    """Child rows must not veto the drop: foreign_keys=ON makes DROP an implicit DELETE."""
+
+    path = tmp_path / "backfill-v4.sqlite"
+    _write_v4_database_with_backfill_tables(path)
+
+    store = SolarAnalyticsV2Store(path)
+    store.initialize()
+
+    assert store.schema_version() == 5
+    assert _table_names(store) & set(_BACKFILL_TABLES) == set()
+    assert store.integrity_check() == "ok"
+    store.close()
+
+
+def test_fresh_database_initializes_at_5_without_backfill_tables(tmp_path) -> None:
+    store = SolarAnalyticsV2Store(tmp_path / "fresh.sqlite")
+    store.initialize()
+
+    assert store.schema_version() == 5
+    assert _table_names(store) & set(_BACKFILL_TABLES) == set()
     store.close()
 
 
@@ -380,6 +457,78 @@ def test_v2_storage_lineage_a_to_b_to_a_is_three_epochs(tmp_path) -> None:
     a2 = store.ensure_lineage(contract_key="A", metadata=metadata, now=now + timedelta(minutes=2))
     assert len({a1, b, a2}) == 3
     assert store.current_lineage_id() == a2
+
+
+def _import_rows(*pairs: tuple[str, float]) -> list[dict[str, object]]:
+    return [
+        {
+            "local_date": local_date,
+            "energy_kwh": energy_kwh,
+            "coverage": 1.0,
+            "observed_hours": 24,
+            "expected_hours": 24,
+            "counter_resets": 0,
+        }
+        for local_date, energy_kwh in pairs
+    ]
+
+
+def test_imported_actual_daily_reimport_replaces_instead_of_accumulating(tmp_path) -> None:
+    store = SolarAnalyticsV2Store(tmp_path / "imported.sqlite")
+    store.initialize()
+    imported_at = datetime(2026, 8, 3, 5, tzinfo=UTC)
+
+    for _ in range(2):
+        store.replace_imported_actual_daily(
+            source_entity_id=ENERGY_ENTITY,
+            provenance="reconstructed_from_recorder_statistics",
+            rows=_import_rows(("2026-08-01", 12.5), ("2026-08-02", 9.25)),
+            imported_at=imported_at,
+        )
+
+    rows = store.list_imported_actual_daily(source_entity_id=ENERGY_ENTITY)
+    assert [row["local_date"] for row in rows] == ["2026-08-01", "2026-08-02"]
+    assert sum(float(row["energy_kwh"]) for row in rows) == 21.75
+    assert {row["provenance"] for row in rows} == {"reconstructed_from_recorder_statistics"}
+
+    store.replace_imported_actual_daily(
+        source_entity_id=ENERGY_ENTITY,
+        provenance="reconstructed_from_recorder_statistics",
+        rows=_import_rows(("2026-08-02", 10.0)),
+        imported_at=imported_at + timedelta(days=1),
+    )
+    corrected = store.list_imported_actual_daily(source_entity_id=ENERGY_ENTITY)
+    assert [float(row["energy_kwh"]) for row in corrected] == [12.5, 10.0]
+    store.close()
+
+
+def test_imported_actual_daily_is_keyed_per_source_entity_and_pruned(tmp_path) -> None:
+    store = SolarAnalyticsV2Store(tmp_path / "imported-prune.sqlite")
+    store.initialize()
+    prune_now = datetime(2026, 8, 3, tzinfo=UTC)
+    cutoff = (prune_now - timedelta(days=30)).date()
+
+    for entity in (ENERGY_ENTITY, "sensor.other_pv_energy"):
+        store.replace_imported_actual_daily(
+            source_entity_id=entity,
+            provenance="reconstructed_from_recorder_statistics",
+            rows=_import_rows(
+                ((cutoff - timedelta(days=1)).isoformat(), 1.0),
+                (cutoff.isoformat(), 2.0),
+            ),
+            imported_at=prune_now,
+        )
+
+    assert len(store.list_imported_actual_daily()) == 4
+    assert len(store.list_imported_actual_daily(source_entity_id=ENERGY_ENTITY)) == 2
+
+    pruned = store.prune(now=prune_now, retention_days=30)
+    assert pruned["v2_imported_actual_daily"] == 2
+    assert [row["local_date"] for row in store.list_imported_actual_daily()] == [
+        cutoff.isoformat(),
+        cutoff.isoformat(),
+    ]
+    store.close()
 
 
 def test_v2_storage_backup_restore_and_exact_retention_boundary(tmp_path) -> None:

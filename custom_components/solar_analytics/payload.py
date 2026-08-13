@@ -13,16 +13,47 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from .imported_actuals import IMPORT_PROVENANCE
 from .native import NATIVE_ADAPTER_VERSION, NATIVE_CONTRACT_VERSION
 from .native_adapter import NativeRead
 from .v2_metrics import MIN_ACTUAL_COVERAGE, MIN_FORECAST_COVERAGE, ActualState
 
 _FUTURE_POINTS_CAP = 96
 _DAILY_POINTS_CAP = 30
+_IMPORTED_POINTS_CAP = 180
 
 
 def _iso(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat() if value is not None else None
+
+
+def build_imported_history_block(
+    *, status: str, source_entity_id: str | None, rows: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Summarise imported historical actuals for one bounded state attribute.
+
+    This block is reconstructed actual production only. It never contributes to
+    ``accuracy``, ``daily_points``, ``valid_paired_day`` or the analysis status.
+    """
+
+    return {
+        "status": status,
+        "provenance": IMPORT_PROVENANCE,
+        "source_entity": source_entity_id,
+        "day_count": len(rows),
+        "total_kwh": round(sum(float(row.get("energy_kwh") or 0.0) for row in rows), 3),
+        "points": [
+            [
+                row.get("local_date"),
+                round(float(row.get("energy_kwh") or 0.0), 3),
+                round(float(row.get("coverage") or 0.0), 4),
+                row.get("counter_resets"),
+            ]
+            for row in rows[-_IMPORTED_POINTS_CAP:]
+        ],
+        "schema": ["date", "energy_kwh", "coverage", "counter_resets"],
+        "storage": f"SQLite v2; entity output bounded to {_IMPORTED_POINTS_CAP} days",
+    }
 
 
 def build_payload(
@@ -34,6 +65,7 @@ def build_payload(
     daily_rows: Sequence[Mapping[str, Any]],
     lineage_id: str | None,
     reconciliation_status: str,
+    imported_history: Mapping[str, Any],
     now_utc: datetime,
 ) -> dict[str, Any]:
     """Return the JSON-serialisable payload consumed by the sensor platforms."""
@@ -130,6 +162,7 @@ def build_payload(
         ),
         "daily_points": daily_points,
         "future_points": future_points,
+        "imported_actual_history": dict(imported_history),
         "heatmap": {"status": "unavailable", "x": [], "y": [], "z": [], "customdata": []},
         "accuracy": dict(accuracy),
         "forecast_coverage": latest_daily.get("forecast_coverage"),

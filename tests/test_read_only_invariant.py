@@ -52,6 +52,31 @@ def _source_text(path: Path) -> str:
             re.compile(r"\btime\.sleep\("),
             "Solar Analytics must not block the event loop with time.sleep().",
         ),
+        (
+            re.compile(r"\basync_import_statistics\("),
+            "Solar Analytics reads the Recorder; it must never write statistics into it.",
+        ),
+        (
+            re.compile(r"\basync_add_external_statistics\("),
+            "Solar Analytics must not publish external statistics to the Recorder.",
+        ),
+        (
+            re.compile(r"\basync_adjust_statistics\("),
+            "Solar Analytics must not adjust recorded statistics.",
+        ),
+        (
+            re.compile(r"\bhass\.states\.async_set\("),
+            "Solar Analytics publishes entities; it must not write states directly.",
+        ),
+        (
+            re.compile(r"\bhass\.states\.async_remove\("),
+            "Solar Analytics must not remove states belonging to other integrations.",
+        ),
+        (
+            re.compile(r"home-assistant_v2\.db"),
+            "A second connection to the live Recorder database is a WAL and locking hazard; "
+            "read the Recorder through its own API instead.",
+        ),
     ],
 )
 def test_read_only_invariant_forbids_pattern(forbidden: re.Pattern[str], reason: str) -> None:
@@ -76,12 +101,26 @@ def test_no_service_registration() -> None:
     assert not hits, f"unexpected async_register call sites: {hits}"
 
 
+def test_sqlite3_stays_local_to_the_integrations_own_store() -> None:
+    """Solar Analytics' own SQLite store is legitimate; a second Recorder connection is not."""
+
+    import_pattern = re.compile(r"^\s*(import sqlite3|from sqlite3 import)\b", re.MULTILINE)
+    importers = {path.name for path in _source_files() if import_pattern.search(_source_text(path))}
+    assert importers == {"storage_v2.py"}, (
+        f"only storage_v2.py may open SQLite databases; found: {sorted(importers)}"
+    )
+
+
 def test_manifest_declares_dependencies_and_platinum_scale() -> None:
     """Sanity-check manifest.json for a couple of platinum-relevant claims."""
 
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert "energy" in manifest["dependencies"]
     assert "forecast_solar" in manifest["dependencies"]
+    # Recorder is default-enabled, so it is an ordering hint rather than a hard
+    # dependency: the integration still loads (and says so) without it.
+    assert "recorder" in manifest["after_dependencies"]
+    assert "recorder" not in manifest["dependencies"]
     assert manifest["quality_scale"] == "platinum"
     assert manifest["config_flow"] is True
     assert manifest["iot_class"] == "local_push"

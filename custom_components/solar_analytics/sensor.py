@@ -68,6 +68,14 @@ _LIMITATION_OPTIONS = ("not_claimed", "curtailment", "external_control", "invert
 _ACCURACY_OPTIONS = ("ready", "insufficient_data")
 _FUTURE_PROFILE_OPTIONS = ("ready", "unavailable")
 _HEATMAP_OPTIONS = ("unavailable",)
+_IMPORTED_HISTORY_OPTIONS = (
+    "uninitialized",
+    "imported",
+    "no_statistics",
+    "no_actual_energy_entity",
+    "recorder_unavailable",
+    "import_failed",
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -106,6 +114,15 @@ def _future_profile_status(data: Mapping[str, Any]) -> str:
 
 def _heatmap_status(data: Mapping[str, Any]) -> str:
     return str((data.get("heatmap") or {}).get("status") or "unavailable")
+
+
+def _imported_history(data: Mapping[str, Any]) -> Mapping[str, Any]:
+    block = data.get("imported_actual_history")
+    return block if isinstance(block, Mapping) else {}
+
+
+def _imported_history_status(data: Mapping[str, Any]) -> str:
+    return str(_imported_history(data).get("status") or "uninitialized")
 
 
 def _lineage_value(data: Mapping[str, Any]) -> str:
@@ -287,6 +304,17 @@ SENSOR_DESCRIPTIONS: tuple[SolarAnalyticsSensorEntityDescription, ...] = (
             "points": data.get("future_points", []),
             "storage": "SQLite v2; entity output bounded to 96 periods",
         },
+    ),
+    SolarAnalyticsSensorEntityDescription(
+        key="imported_actual_history",
+        translation_key="imported_actual_history",
+        icon="mdi:history",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_IMPORTED_HISTORY_OPTIONS),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=_imported_history_status,
+        attributes_fn=lambda data: dict(_imported_history(data)),
     ),
     SolarAnalyticsSensorEntityDescription(
         key="heatmap",
