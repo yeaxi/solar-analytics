@@ -159,21 +159,6 @@ def build_native_model_fingerprint(contract: Mapping[str, Any]) -> str | None:
     return digest
 
 
-def _canonical_wh_hours(raw: Mapping[str, Any]) -> dict[str, float] | None:
-    canonical: dict[str, float] = {}
-    for key, value in raw.items():
-        timestamp = _parse_utc(key)
-        number = _finite_non_negative(value)
-        if timestamp is None or number is None:
-            return None
-        # The native helper removes exactly a zero point at midnight. Mirror that
-        # contract without reconstructing the point in Solar Analytics.
-        if number == 0.0 and (timestamp.hour, timestamp.minute, timestamp.second) == (0, 0, 0):
-            continue
-        canonical[timestamp.isoformat()] = number
-    return canonical
-
-
 def normalize_native_wh_hours(
     payload: Mapping[str, Any],
     *,
