@@ -108,6 +108,25 @@ All notable changes to Solar Analytics are documented here. The format follows
   datetimes sharing a timezone, which always reported 24 hours. DST transition
   days are measured against their real 23 or 25 hours, and the three coverage
   ratios are clamped at 1.0.
+- Every five-minute cycle re-read the whole accumulator table and rebuilt the
+  interval rows of every retained day, including days that finished weeks ago.
+  `integrate_accumulators` now bounds its read on both sides of the requested
+  window, from one 30-minute bucket before the start through the end, and
+  interval rebuilding stops at a finalization marker in `v2_runtime_state` so a
+  finished local day is built once. Measured over 17,520 buckets (365 days) with
+  a one-hour window, 25 runs: 17,520 rows fetched down to 3, median 21.682 ms
+  down to 0.008 ms, window total unchanged at 200.0 Wh and 3,600.0 covered
+  seconds. Rerun it with `python scripts/benchmark_accumulator_window.py`.
+- A direct upgrade still repairs history. The marker carries its own
+  `INTERVAL_BUILD_REVISION`, separate from the manifest, metric and
+  normalization versions, and is refused when it does not match this build, this
+  lineage or the configured timezone, so every retained day replays once and
+  rows written under the pre-2.2.2 coverage semantics are rewritten. A local day
+  becomes final one hour after its own local midnight, measured through
+  `local_day_bounds_utc`, so a 23-hour or 25-hour DST day is not finalized
+  early. No schema, index, metric or normalization version change.
+- One far-past accumulator bucket with an unparseable timestamp used to make
+  every window read raise `ValueError`. The bounded read cannot fetch it.
 - The snapshot schedule section of
   `docs/architecture/solar-analytics-recorder-and-forecast-contract.md` said
   the morning snapshot targets the current local date. Both configured
