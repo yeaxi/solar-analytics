@@ -197,7 +197,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = datetime.now(UTC)
         today = now.astimezone(self.time_zone).date()
         try:
-            history = await self._async_read_actual_history(entity_id, today, now)
+            history = await self._async_read_actual_history(entity_id, today)
             self._imported_history = await self.hass.async_add_executor_job(
                 functools.partial(self._store_imported_history_sync, history, entity_id, today, now)
             )
@@ -208,7 +208,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
     async def _async_read_actual_history(
-        self, entity_id: str, today: date, now_utc: datetime
+        self, entity_id: str, today: date
     ) -> ImportedActualHistory | None:
         """Return this run's reconstruction, or ``None`` when today's is already stored."""
 

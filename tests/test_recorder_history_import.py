@@ -234,7 +234,7 @@ def test_stored_run_is_not_repeated_on_the_same_local_day(coordinator_module, tm
 
     same_day = asyncio.run(
         coordinator_module.SolarAnalyticsCoordinator._async_read_actual_history(
-            shell, ENERGY_ENTITY, today, now
+            shell, ENERGY_ENTITY, today
         )
     )
     assert same_day is None
