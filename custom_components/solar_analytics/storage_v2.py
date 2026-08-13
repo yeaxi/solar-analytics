@@ -576,9 +576,6 @@ class SolarAnalyticsV2Store:
         end = end_utc.astimezone(UTC) if end_utc.tzinfo else end_utc.replace(tzinfo=UTC)
         bucket = timedelta(seconds=ACCUMULATOR_BUCKET_SECONDS)
         try:
-            # add_power_sample writes every key as a fixed-width UTC ISO string, so
-            # comparing keys as text orders them chronologically and both bounds ride
-            # the interval_start_utc primary-key index.
             rows = self.db.execute(
                 "SELECT * FROM v2_accumulators WHERE interval_start_utc >= ? AND interval_start_utc < ? "
                 "ORDER BY interval_start_utc",

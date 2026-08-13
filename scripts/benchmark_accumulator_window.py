@@ -21,23 +21,25 @@ check first and a stopwatch second.
 
 from __future__ import annotations
 
+import importlib.util
 import sqlite3
 import statistics
-import sys
 import tempfile
 import time
-import types
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-_COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
-_package = types.ModuleType("solar_analytics")
-_package.__path__ = [str(_COMPONENT)]  # type: ignore[attr-defined]
-sys.modules.setdefault("solar_analytics", _package)
-
-from solar_analytics.storage_v2 import SolarAnalyticsV2Store  # noqa: E402
+_STORAGE = (
+    Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics" / "storage_v2.py"
+)
+_spec = importlib.util.spec_from_file_location("solar_analytics_storage_v2", _STORAGE)
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"cannot load {_STORAGE}")
+_storage_v2 = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_storage_v2)
+SolarAnalyticsV2Store = _storage_v2.SolarAnalyticsV2Store
 
 DAYS = 365
 BUCKET = timedelta(minutes=30)
