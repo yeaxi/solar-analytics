@@ -72,6 +72,19 @@ class ImportedActualHistory:
     def total_kwh(self) -> float:
         return sum(day.energy_kwh for day in self.days)
 
+    def as_storage_rows(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "local_date": day.local_date.isoformat(),
+                "energy_kwh": day.energy_kwh,
+                "coverage": day.coverage,
+                "observed_hours": day.observed_hours,
+                "expected_hours": day.expected_hours,
+                "counter_resets": day.counter_resets,
+            }
+            for day in self.days
+        ]
+
 
 def import_window_utc(
     today_local: date, *, tz: ZoneInfo, lookback_days: int = DEFAULT_IMPORT_LOOKBACK_DAYS

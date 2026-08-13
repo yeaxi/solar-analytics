@@ -459,6 +459,78 @@ def test_v2_storage_lineage_a_to_b_to_a_is_three_epochs(tmp_path) -> None:
     assert store.current_lineage_id() == a2
 
 
+def _import_rows(*pairs: tuple[str, float]) -> list[dict[str, object]]:
+    return [
+        {
+            "local_date": local_date,
+            "energy_kwh": energy_kwh,
+            "coverage": 1.0,
+            "observed_hours": 24,
+            "expected_hours": 24,
+            "counter_resets": 0,
+        }
+        for local_date, energy_kwh in pairs
+    ]
+
+
+def test_imported_actual_daily_reimport_replaces_instead_of_accumulating(tmp_path) -> None:
+    store = SolarAnalyticsV2Store(tmp_path / "imported.sqlite")
+    store.initialize()
+    imported_at = datetime(2026, 8, 3, 5, tzinfo=UTC)
+
+    for _ in range(2):
+        store.replace_imported_actual_daily(
+            source_entity_id=ENERGY_ENTITY,
+            provenance="reconstructed_from_recorder_statistics",
+            rows=_import_rows(("2026-08-01", 12.5), ("2026-08-02", 9.25)),
+            imported_at=imported_at,
+        )
+
+    rows = store.list_imported_actual_daily(source_entity_id=ENERGY_ENTITY)
+    assert [row["local_date"] for row in rows] == ["2026-08-01", "2026-08-02"]
+    assert sum(float(row["energy_kwh"]) for row in rows) == 21.75
+    assert {row["provenance"] for row in rows} == {"reconstructed_from_recorder_statistics"}
+
+    store.replace_imported_actual_daily(
+        source_entity_id=ENERGY_ENTITY,
+        provenance="reconstructed_from_recorder_statistics",
+        rows=_import_rows(("2026-08-02", 10.0)),
+        imported_at=imported_at + timedelta(days=1),
+    )
+    corrected = store.list_imported_actual_daily(source_entity_id=ENERGY_ENTITY)
+    assert [float(row["energy_kwh"]) for row in corrected] == [12.5, 10.0]
+    store.close()
+
+
+def test_imported_actual_daily_is_keyed_per_source_entity_and_pruned(tmp_path) -> None:
+    store = SolarAnalyticsV2Store(tmp_path / "imported-prune.sqlite")
+    store.initialize()
+    prune_now = datetime(2026, 8, 3, tzinfo=UTC)
+    cutoff = (prune_now - timedelta(days=30)).date()
+
+    for entity in (ENERGY_ENTITY, "sensor.other_pv_energy"):
+        store.replace_imported_actual_daily(
+            source_entity_id=entity,
+            provenance="reconstructed_from_recorder_statistics",
+            rows=_import_rows(
+                ((cutoff - timedelta(days=1)).isoformat(), 1.0),
+                (cutoff.isoformat(), 2.0),
+            ),
+            imported_at=prune_now,
+        )
+
+    assert len(store.list_imported_actual_daily()) == 4
+    assert len(store.list_imported_actual_daily(source_entity_id=ENERGY_ENTITY)) == 2
+
+    pruned = store.prune(now=prune_now, retention_days=30)
+    assert pruned["v2_imported_actual_daily"] == 2
+    assert [row["local_date"] for row in store.list_imported_actual_daily()] == [
+        cutoff.isoformat(),
+        cutoff.isoformat(),
+    ]
+    store.close()
+
+
 def test_v2_storage_backup_restore_and_exact_retention_boundary(tmp_path) -> None:
     path = tmp_path / "retention.sqlite"
     backup = tmp_path / "restore.sqlite"

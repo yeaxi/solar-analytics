@@ -6,7 +6,7 @@ import json
 import sqlite3
 import threading
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from math import isfinite
@@ -216,6 +216,18 @@ class SolarAnalyticsV2Store:
                     sample_count INTEGER NOT NULL,
                     last_power_w REAL,
                     quality TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS v2_imported_actual_daily (
+                    source_entity_id TEXT NOT NULL,
+                    local_date TEXT NOT NULL,
+                    energy_kwh REAL NOT NULL,
+                    coverage REAL NOT NULL,
+                    observed_hours INTEGER NOT NULL,
+                    expected_hours INTEGER NOT NULL,
+                    counter_resets INTEGER NOT NULL DEFAULT 0,
+                    provenance TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL,
+                    PRIMARY KEY(source_entity_id, local_date)
                 );
                 """
             )
@@ -735,6 +747,65 @@ class SolarAnalyticsV2Store:
         result["payload"] = json.loads(result.pop("payload_json"))
         return result
 
+    def replace_imported_actual_daily(
+        self,
+        *,
+        source_entity_id: str,
+        provenance: str,
+        rows: Sequence[Mapping[str, Any]],
+        imported_at: datetime,
+    ) -> int:
+        """Write one import run's days atomically, replacing any earlier values.
+
+        Never additive: a re-run of the same window converges to the same rows
+        instead of accumulating them.
+        """
+
+        stamp = imported_at.astimezone(UTC).isoformat()
+        with self.transaction():
+            self.db.executemany(
+                "INSERT INTO v2_imported_actual_daily(source_entity_id,local_date,energy_kwh,coverage,"
+                "observed_hours,expected_hours,counter_resets,provenance,imported_at_utc) "
+                "VALUES(?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(source_entity_id,local_date) DO UPDATE SET energy_kwh=excluded.energy_kwh,"
+                "coverage=excluded.coverage,observed_hours=excluded.observed_hours,"
+                "expected_hours=excluded.expected_hours,counter_resets=excluded.counter_resets,"
+                "provenance=excluded.provenance,imported_at_utc=excluded.imported_at_utc",
+                [
+                    (
+                        source_entity_id,
+                        str(row["local_date"]),
+                        float(row["energy_kwh"]),
+                        float(row["coverage"]),
+                        int(row["observed_hours"]),
+                        int(row["expected_hours"]),
+                        int(row["counter_resets"]),
+                        provenance,
+                        stamp,
+                    )
+                    for row in rows
+                ],
+            )
+        return len(rows)
+
+    def list_imported_actual_daily(
+        self, *, source_entity_id: str | None = None, since: str | None = None
+    ) -> list[dict[str, Any]]:
+        clauses = []
+        params = []
+        if source_entity_id is not None:
+            clauses.append("source_entity_id=?")
+            params.append(source_entity_id)
+        if since is not None:
+            clauses.append("local_date>=?")
+            params.append(since)
+        query = (
+            "SELECT * FROM v2_imported_actual_daily"
+            + (" WHERE " + " AND ".join(clauses) if clauses else "")
+            + " ORDER BY local_date"
+        )
+        return [dict(row) for row in self.db.execute(query, params).fetchall()]
+
     def integrity_check(self) -> str:
         row = self.db.execute("PRAGMA integrity_check").fetchone()
         return str(row[0]) if row else "unknown"
@@ -763,6 +834,7 @@ class SolarAnalyticsV2Store:
                 ("v2_snapshot_slots", "target_local_date"),
                 ("v2_intervals", "target_local_date"),
                 ("v2_daily_comparisons", "local_date"),
+                ("v2_imported_actual_daily", "local_date"),
             ):
                 cursor = self.db.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
                 counts[table] = cursor.rowcount
