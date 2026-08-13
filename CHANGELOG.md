@@ -36,6 +36,22 @@ All notable changes to Solar Analytics are documented here. The format follows
 - `hacs.json`: removed the invalid `"hacs"` key that made the HACS validator
   reject the manifest; explicitly declared `"zip_release": false`.
 
+### Fixed
+- Daily coverage could never clear its 95% / 90% gate, so
+  `sensor.solar_analytics_analysis_status` was stuck on `insufficient_data`
+  and forecast accuracy never became `ready`. Forecast.Solar reports the whole
+  night as one zero-Wh period straddling local midnight, and every
+  boundary-crossing period was dropped, leaving only daylight in a numerator
+  divided by a full day. A zero-Wh period is now clipped at local midnight and
+  counted for both adjacent days; a boundary-crossing period that carries
+  energy is still excluded rather than apportioned by time. Existing days are
+  recomputed from the stored immutable snapshots, so the correction applies to
+  history already on disk.
+- Day length is now measured between two UTC instants instead of two local
+  datetimes sharing a timezone, which always reported 24 hours. DST transition
+  days are measured against their real 23 or 25 hours, and the three coverage
+  ratios are clamped at 1.0.
+
 ## [2.2.1] - 2026-08
 
 Housekeeping release covering PRs #2 and #3 as a single tag.
