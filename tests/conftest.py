@@ -138,6 +138,24 @@ def coordinator_module():
     return _load_component_module("coordinator")
 
 
+@pytest.fixture
+def coordinator_shell(coordinator_module):
+    """Build a coordinator that resolves its own methods but skips HA setup.
+
+    The sync analytics passes need only the store and the analytics timezone.
+    Bypassing ``__init__`` keeps them callable without a config entry, while
+    real attribute lookup keeps helper-to-helper calls working.
+    """
+
+    def _make(*, store, time_zone):
+        shell = object.__new__(coordinator_module.SolarAnalyticsCoordinator)
+        shell.store = store
+        shell.time_zone = time_zone
+        return shell
+
+    return _make
+
+
 @pytest.fixture(scope="session")
 def recorder_history_module():
     return _load_component_module("recorder_history")

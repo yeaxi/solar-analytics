@@ -38,6 +38,13 @@ from .imported_actuals import (
     build_imported_history,
     import_window_utc,
 )
+from .interval_watermark import (
+    INTERVAL_BUILD_REVISION,
+    WATERMARK_RUNTIME_KEY,
+    FinalizationWatermark,
+    last_final_local_date,
+    read_watermark,
+)
 from .native import (
     NATIVE_ADAPTER_VERSION,
     NATIVE_CONTRACT_VERSION,
@@ -628,68 +635,108 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return status
 
     def _process_recent_intervals_sync(self, lineage_id: str, now_utc: datetime) -> None:
-        """Join immutable morning snapshot cells to integrated actual power."""
+        """Rebuild interval rows for every local day that is not finished yet.
+
+        A finished day's rows can never change, so days at or below the stored
+        finalization marker are skipped. Without a trustworthy marker every
+        retained admissible day is rebuilt once, which is what carries a direct
+        upgrade from a build whose coverage semantics differed.
+        """
 
         today = now_utc.astimezone(self.time_zone).date()
-        slots = self.store.list_snapshot_slots(lineage_id=lineage_id, snapshot_type="morning")
-        for slot in slots:
+        timezone_name = str(self.time_zone)
+        final_through = last_final_local_date(now_utc, tz=self.time_zone)
+        finalized = read_watermark(
+            self.store.get_runtime(WATERMARK_RUNTIME_KEY),
+            lineage_id=lineage_id,
+            timezone=timezone_name,
+            final_through=final_through,
+        )
+        pending: list[tuple[date, Mapping[str, Any]]] = []
+        for slot in self.store.list_snapshot_slots(lineage_id=lineage_id, snapshot_type="morning"):
             try:
                 local_day = date.fromisoformat(str(slot["target_local_date"]))
             except ValueError:
                 continue
             if local_day > today or not bool(slot.get("admissible")):
                 continue
-            for row in self.store.snapshot_periods(int(slot["snapshot_slot_id"])):
-                if not bool(row.get("valid")):
-                    continue
-                start = _parse_iso(row.get("interval_start_utc"))
-                end = _parse_iso(row.get("interval_end_utc"))
-                if start is None or end is None:
-                    continue
-                window = clip_period_to_local_date(
-                    start, end, row.get("energy_wh"), local_day, tz=self.time_zone
+            if finalized is not None and local_day <= finalized:
+                continue
+            pending.append((local_day, slot))
+        for local_day, slot in sorted(pending, key=lambda item: item[0]):
+            self._build_day_intervals_sync(lineage_id, slot, local_day, now_utc)
+            if local_day <= final_through:
+                # Every write here autocommits, so the marker can only land after
+                # that day's rows are already durable. A crash in between replays
+                # the day, which is idempotent. Wrapping the catch-up in one
+                # transaction would hold a write lock across unrelated writers,
+                # who do not share this store's lock.
+                self.store.set_runtime(
+                    WATERMARK_RUNTIME_KEY,
+                    FinalizationWatermark(
+                        revision=INTERVAL_BUILD_REVISION,
+                        lineage_id=lineage_id,
+                        timezone=timezone_name,
+                        finalized_through=local_day,
+                    ).as_runtime_value(),
                 )
-                if window is None:
-                    continue
-                start, end = window
-                if end > now_utc:
-                    continue
-                duration = (end - start).total_seconds()
-                actual = self.store.integrate_accumulators(start, end)
-                covered = min(float(actual.get("covered_seconds") or 0.0), duration)
-                actual_energy = actual.get("energy_wh")
-                actual_valid = (
-                    covered >= duration * MIN_ACTUAL_COVERAGE and actual_energy is not None
-                )
-                paired_valid = actual_valid
-                reason = (
-                    "paired"
-                    if paired_valid
-                    else ("actual_gap" if covered > 0 else "actual_missing")
-                )
-                interval_reconciliation = (
-                    self.store.get_runtime(f"reconciliation_status:{local_day.isoformat()}")
-                    or "not_observed"
-                )
-                self.store.upsert_interval(
-                    {
-                        "lineage_id": lineage_id,
-                        "interval_start_utc": start.isoformat(),
-                        "interval_end_utc": end.isoformat(),
-                        "target_local_date": local_day.isoformat(),
-                        "forecast_energy_wh": float(row["energy_wh"]),
-                        "actual_energy_wh": float(actual_energy)
-                        if actual_energy is not None and actual_valid
-                        else None,
-                        "eligible_seconds": duration,
-                        "actual_covered_seconds": covered,
-                        "forecast_valid": True,
-                        "actual_valid": actual_valid,
-                        "paired_valid": paired_valid,
-                        "validity_reason": reason,
-                        "reconciliation_status": interval_reconciliation,
-                    }
-                )
+
+    def _build_day_intervals_sync(
+        self,
+        lineage_id: str,
+        slot: Mapping[str, Any],
+        local_day: date,
+        now_utc: datetime,
+    ) -> None:
+        """Join one day of immutable morning snapshot cells to integrated actual power."""
+
+        interval_reconciliation = (
+            self.store.get_runtime(f"reconciliation_status:{local_day.isoformat()}")
+            or "not_observed"
+        )
+        for row in self.store.snapshot_periods(int(slot["snapshot_slot_id"])):
+            if not bool(row.get("valid")):
+                continue
+            start = _parse_iso(row.get("interval_start_utc"))
+            end = _parse_iso(row.get("interval_end_utc"))
+            if start is None or end is None:
+                continue
+            window = clip_period_to_local_date(
+                start, end, row.get("energy_wh"), local_day, tz=self.time_zone
+            )
+            if window is None:
+                continue
+            start, end = window
+            if end > now_utc:
+                continue
+            duration = (end - start).total_seconds()
+            actual = self.store.integrate_accumulators(start, end)
+            covered = min(float(actual.get("covered_seconds") or 0.0), duration)
+            actual_energy = actual.get("energy_wh")
+            actual_valid = covered >= duration * MIN_ACTUAL_COVERAGE and actual_energy is not None
+            paired_valid = actual_valid
+            reason = (
+                "paired" if paired_valid else ("actual_gap" if covered > 0 else "actual_missing")
+            )
+            self.store.upsert_interval(
+                {
+                    "lineage_id": lineage_id,
+                    "interval_start_utc": start.isoformat(),
+                    "interval_end_utc": end.isoformat(),
+                    "target_local_date": local_day.isoformat(),
+                    "forecast_energy_wh": float(row["energy_wh"]),
+                    "actual_energy_wh": float(actual_energy)
+                    if actual_energy is not None and actual_valid
+                    else None,
+                    "eligible_seconds": duration,
+                    "actual_covered_seconds": covered,
+                    "forecast_valid": True,
+                    "actual_valid": actual_valid,
+                    "paired_valid": paired_valid,
+                    "validity_reason": reason,
+                    "reconciliation_status": interval_reconciliation,
+                }
+            )
 
     def _process_daily_sync(
         self, lineage_id: str | None, now_utc: datetime

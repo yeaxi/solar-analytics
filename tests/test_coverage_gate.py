@@ -9,7 +9,6 @@ which is where the day-boundary numerator and the DST denominator live.
 
 from __future__ import annotations
 
-import types
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -47,7 +46,7 @@ def _native_payload(days: tuple[date, ...], tz: ZoneInfo) -> dict[str, dict[str,
 
 
 def _run_day(
-    coordinator_module, tmp_path: Path, target: date, tz: ZoneInfo
+    coordinator_shell, tmp_path: Path, target: date, tz: ZoneInfo
 ) -> tuple[dict, list[dict]]:
     """Drive one target local day end to end and return its daily row plus intervals."""
 
@@ -105,11 +104,10 @@ def _run_day(
         sample += timedelta(minutes=5)
 
     now = day_end + timedelta(hours=6)
-    shell = types.SimpleNamespace(store=store, time_zone=tz)
-    coordinator = coordinator_module.SolarAnalyticsCoordinator
-    coordinator._process_recent_intervals_sync(shell, lineage_id, now)
+    shell = coordinator_shell(store=store, time_zone=tz)
+    shell._process_recent_intervals_sync(lineage_id, now)
     intervals = store.list_intervals(lineage_id=lineage_id, local_date=target.isoformat())
-    daily = coordinator._process_daily_sync(shell, lineage_id, now)
+    daily = shell._process_daily_sync(lineage_id, now)
     store.close()
 
     row = next(item for item in daily if item["local_date"] == target.isoformat())
@@ -117,11 +115,11 @@ def _run_day(
 
 
 def test_night_cell_crossing_local_midnight_is_counted_for_the_local_day(
-    coordinator_module, tmp_path: Path
+    coordinator_shell, tmp_path: Path
 ) -> None:
     """The zero-Wh overnight cell is clipped at midnight, so a normal day clears the gate."""
 
-    row, intervals = _run_day(coordinator_module, tmp_path, date(2026, 8, 10), KYIV)
+    row, intervals = _run_day(coordinator_shell, tmp_path, date(2026, 8, 10), KYIV)
 
     daylight_cells = SUNSET_HOUR - SUNRISE_HOUR
     assert len(intervals) == daylight_cells + 2
@@ -133,10 +131,8 @@ def test_night_cell_crossing_local_midnight_is_counted_for_the_local_day(
     assert row["reason"] == "valid_paired_day"
 
 
-def test_spring_forward_day_is_measured_against_23_hours(
-    coordinator_module, tmp_path: Path
-) -> None:
-    row, intervals = _run_day(coordinator_module, tmp_path, date(2026, 3, 29), KYIV)
+def test_spring_forward_day_is_measured_against_23_hours(coordinator_shell, tmp_path: Path) -> None:
+    row, intervals = _run_day(coordinator_shell, tmp_path, date(2026, 3, 29), KYIV)
 
     assert sum(float(item["eligible_seconds"]) for item in intervals) == 82800
     assert row["forecast_coverage"] == pytest.approx(1.0)
@@ -145,9 +141,9 @@ def test_spring_forward_day_is_measured_against_23_hours(
 
 
 def test_fall_back_day_is_measured_against_25_hours_and_stays_clamped(
-    coordinator_module, tmp_path: Path
+    coordinator_shell, tmp_path: Path
 ) -> None:
-    row, intervals = _run_day(coordinator_module, tmp_path, date(2026, 10, 25), KYIV)
+    row, intervals = _run_day(coordinator_shell, tmp_path, date(2026, 10, 25), KYIV)
 
     assert sum(float(item["eligible_seconds"]) for item in intervals) == 90000
     assert row["forecast_coverage"] == pytest.approx(1.0)
