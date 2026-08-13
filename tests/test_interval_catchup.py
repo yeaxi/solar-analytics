@@ -15,6 +15,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+from realistic_day import DAYLIGHT_CELLS, DAYLIGHT_WH, daylight_windows, seed_day
 from solar_analytics.interval_watermark import (
     INTERVAL_BUILD_REVISION,
     WATERMARK_RUNTIME_KEY,
@@ -249,34 +250,79 @@ def _analytics_fields(rows: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
     ]
 
 
-def test_a_direct_upgrade_rewrites_rows_left_by_the_older_coverage_semantics(
+def test_a_direct_upgrade_replays_a_pre_clipping_day_and_clears_the_gate(
     coordinator_shell, tmp_path: Path
 ) -> None:
-    """Rows written before the day-boundary fix carried 0.625 coverage and no pairing."""
+    """A database written before the day-boundary fix holds a day that cannot pass.
 
-    days = [TODAY - timedelta(days=offset) for offset in (3, 2, 1)]
-    store, lineage_id = _seed(tmp_path, days)
+    That build dropped every forecast cell straddling local midnight, so a full
+    day stored only its 15 daylight intervals and a daily row whose coverage was
+    15 hours over 24. It left no finalization marker, so the day must replay once
+    and come back as 17 intervals that clear the gate.
+    """
+
+    target = date(2026, 8, 10)
+    seeded = seed_day(tmp_path / "upgrade.sqlite", target, KYIV)
+    store, lineage_id = seeded.store, seeded.lineage_id
+    old_coverage = DAYLIGHT_CELLS * 3600.0 / 86400.0
+    assert old_coverage == 0.625
+
+    for start, end in daylight_windows(target, KYIV):
+        store.upsert_interval(
+            {
+                "lineage_id": lineage_id,
+                "interval_start_utc": start.isoformat(),
+                "interval_end_utc": end.isoformat(),
+                "target_local_date": target.isoformat(),
+                "forecast_energy_wh": DAYLIGHT_WH,
+                "actual_energy_wh": DAYLIGHT_WH,
+                "eligible_seconds": 3600.0,
+                "actual_covered_seconds": 3600.0,
+                "forecast_valid": True,
+                "actual_valid": True,
+                "paired_valid": True,
+                "validity_reason": "paired",
+                "reconciliation_status": "not_observed",
+            }
+        )
+    store.upsert_daily(
+        {
+            "lineage_id": lineage_id,
+            "local_date": target.isoformat(),
+            "morning_slot_id": seeded.slot_id,
+            "forecast_coverage": old_coverage,
+            "actual_coverage": old_coverage,
+            "paired_coverage": old_coverage,
+            "valid_paired_day": False,
+            "reason": "coverage_below_gate",
+            "reconciliation_status": "not_observed",
+        }
+    )
+    assert len(store.list_intervals(lineage_id=lineage_id)) == DAYLIGHT_CELLS
+    assert _marker(store) is None
+
     counter = _CountingStore(store)
     shell = coordinator_shell(store=counter, time_zone=KYIV)
-    now = _local_noon(TODAY)
+    now = seeded.day_end_utc + timedelta(hours=6)
     shell._process_recent_intervals_sync(lineage_id, now)
+    daily = shell._process_daily_sync(lineage_id, now)
 
-    store.db.execute(
-        "UPDATE v2_intervals SET actual_covered_seconds=eligible_seconds*0.625,"
-        "actual_energy_wh=NULL,actual_valid=0,paired_valid=0,validity_reason='actual_gap'"
-    )
-    store.db.execute("DELETE FROM v2_runtime_state WHERE key=?", (WATERMARK_RUNTIME_KEY,))
+    intervals = store.list_intervals(lineage_id=lineage_id, local_date=target.isoformat())
+    row = next(item for item in daily if item["local_date"] == target.isoformat())
+    assert len(intervals) == DAYLIGHT_CELLS + 2
+    assert sum(float(item["eligible_seconds"]) for item in intervals) == 86400
+    assert row["forecast_coverage"] == pytest.approx(1.0)
+    assert row["actual_coverage"] == pytest.approx(1.0)
+    assert row["paired_coverage"] == pytest.approx(1.0)
+    assert bool(row["valid_paired_day"]) is True
+    assert row["reason"] == "valid_paired_day"
+    assert _marker(store)["finalized_through"] == target.isoformat()
+
     counter.windows.clear()
-
     shell._process_recent_intervals_sync(lineage_id, now)
 
-    rows = store.list_intervals(lineage_id=lineage_id)
-    assert _days_touched(counter) == set(days)
-    assert len(rows) == len(days) * CELLS_PER_DAY
-    for row in rows:
-        assert row["actual_covered_seconds"] == pytest.approx(row["eligible_seconds"])
-        assert bool(row["paired_valid"]) is True
-        assert row["validity_reason"] == "paired"
+    assert counter.windows == []
+    assert store.list_intervals(lineage_id=lineage_id, local_date=target.isoformat()) == intervals
     store.close()
 
 
@@ -324,7 +370,7 @@ def test_a_dst_day_becomes_final_one_hour_after_its_own_midnight(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("revision", "pre-bounded-window-build"),
+        ("revision", "pre-clipping-build"),
         ("lineage_id", "some-other-lineage"),
         ("timezone", "Europe/Warsaw"),
         ("finalized_through", (TODAY + timedelta(days=30)).isoformat()),

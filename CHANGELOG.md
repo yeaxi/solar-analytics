@@ -118,10 +118,14 @@ All notable changes to Solar Analytics are documented here. The format follows
   down to 0.008 ms, window total unchanged at 200.0 Wh and 3,600.0 covered
   seconds. Rerun it with `python scripts/benchmark_accumulator_window.py`.
 - A direct upgrade still repairs history. The marker carries its own
-  `INTERVAL_BUILD_REVISION`, separate from the manifest, metric and
+  `INTERVAL_BUILD_REVISION`, which names the interval semantics a finished day
+  is built with and currently reads `clipped-day-boundary-v1` after the
+  day-boundary fix above. It is separate from the manifest, metric and
   normalization versions, and is refused when it does not match this build, this
-  lineage or the configured timezone, so every retained day replays once and
-  rows written under the pre-2.2.2 coverage semantics are rewritten. A local day
+  lineage or the configured timezone, so a database written before that fix
+  replays every retained day once: a full day that stored 15 daylight intervals
+  and a 0.625 daily row comes back as 17 intervals that clear the gate. A local
+  day
   becomes final one hour after its own local midnight, measured through
   `local_day_bounds_utc`, so a 23-hour or 25-hour DST day is not finalized
   early. No schema, index, metric or normalization version change.
