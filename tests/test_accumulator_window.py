@@ -125,6 +125,40 @@ def test_one_gap_bucket_inside_the_window_degrades_quality(tmp_path: Path) -> No
     assert result["covered_seconds"] == pytest.approx(BUCKET_SECONDS * 2)
 
 
+def test_bucket_straddling_the_window_start_is_still_prorated_in(tmp_path: Path) -> None:
+    """The read must reach back one bucket, or a window opening mid-bucket loses it."""
+
+    store = _store(tmp_path, [_bucket(WINDOW_START - BUCKET)], name="straddle.sqlite")
+
+    result = store.integrate_accumulators(
+        WINDOW_START - timedelta(minutes=15), WINDOW_START + timedelta(minutes=15)
+    )
+    store.close()
+
+    assert result["energy_wh"] == pytest.approx(BUCKET_WH / 2)
+    assert result["covered_seconds"] == pytest.approx(BUCKET_SECONDS / 2)
+    assert result["quality"] == "good"
+
+
+def test_unreadable_far_past_bucket_cannot_break_the_window_read(tmp_path: Path) -> None:
+    """A row the window cannot need must never be fetched, let alone parsed."""
+
+    store = _store(
+        tmp_path,
+        [
+            ("2025-02-30T25:61:00+00:00", BUCKET_WH, BUCKET_SECONDS, BUCKET_SAMPLES, 200.0, "good"),
+            _bucket(WINDOW_START),
+        ],
+        name="unreadable.sqlite",
+    )
+
+    result = store.integrate_accumulators(WINDOW_START, WINDOW_START + BUCKET)
+    store.close()
+
+    assert result["energy_wh"] == pytest.approx(BUCKET_WH)
+    assert result["covered_seconds"] == pytest.approx(BUCKET_SECONDS)
+
+
 def test_distant_history_cannot_change_the_window_result(tmp_path: Path) -> None:
     """A year of buckets outside the window must not move the answer by a Wh."""
 

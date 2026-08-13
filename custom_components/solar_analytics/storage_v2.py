@@ -16,6 +16,7 @@ from typing import Any
 SCHEMA_VERSION = 5
 NORMALIZATION_VERSION = "native-period-end-v2.1"
 METRIC_VERSION = "morning-baseline-v2"
+ACCUMULATOR_BUCKET_SECONDS = 30 * 60
 
 _DROPPED_BACKFILL_TABLES = (
     "v2_backfill_snapshot_intervals",
@@ -516,7 +517,7 @@ class SolarAnalyticsV2Store:
         timestamp: datetime,
         power_w: float | None,
         *,
-        minutes: int = 30,
+        minutes: int = ACCUMULATOR_BUCKET_SECONDS // 60,
         max_gap_seconds: int = 900,
     ) -> None:
         current_ts = (
@@ -573,10 +574,15 @@ class SolarAnalyticsV2Store:
     ) -> dict[str, float | int | str | None]:
         start = start_utc.astimezone(UTC) if start_utc.tzinfo else start_utc.replace(tzinfo=UTC)
         end = end_utc.astimezone(UTC) if end_utc.tzinfo else end_utc.replace(tzinfo=UTC)
+        bucket = timedelta(seconds=ACCUMULATOR_BUCKET_SECONDS)
         try:
+            # add_power_sample writes every key as a fixed-width UTC ISO string, so
+            # comparing keys as text orders them chronologically and both bounds ride
+            # the interval_start_utc primary-key index.
             rows = self.db.execute(
-                "SELECT * FROM v2_accumulators WHERE interval_start_utc < ? ORDER BY interval_start_utc",
-                (end.isoformat(),),
+                "SELECT * FROM v2_accumulators WHERE interval_start_utc >= ? AND interval_start_utc < ? "
+                "ORDER BY interval_start_utc",
+                ((start - bucket).isoformat(), end.isoformat()),
             ).fetchall()
         except sqlite3.OperationalError:
             return {
@@ -593,13 +599,13 @@ class SolarAnalyticsV2Store:
             bucket_start = datetime.fromisoformat(
                 row["interval_start_utc"].replace("Z", "+00:00")
             ).astimezone(UTC)
-            bucket_end = bucket_start + timedelta(minutes=30)
+            bucket_end = bucket_start + bucket
             if bucket_end <= start:
                 continue
             overlap = max(0.0, (min(bucket_end, end) - max(bucket_start, start)).total_seconds())
             if overlap <= 0:
                 continue
-            ratio = overlap / 1800.0
+            ratio = overlap / ACCUMULATOR_BUCKET_SECONDS
             energy += float(row["energy_wh"] or 0.0) * ratio
             covered += float(row["covered_seconds"] or 0.0) * ratio
             count += int(row["sample_count"] or 0)
