@@ -6,16 +6,25 @@ import json
 import sqlite3
 import threading
 import uuid
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from math import isfinite
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 NORMALIZATION_VERSION = "native-period-end-v2.1"
 METRIC_VERSION = "morning-baseline-v2"
+
+_DROPPED_BACKFILL_TABLES = (
+    "v2_backfill_snapshot_intervals",
+    "v2_backfill_intervals",
+    "v2_backfill_daily_comparisons",
+    "v2_backfill_accuracy_results",
+    "v2_backfill_snapshots",
+    "v2_backfill_runs",
+)
 
 
 class StorageError(RuntimeError):
@@ -208,110 +217,6 @@ class SolarAnalyticsV2Store:
                     last_power_w REAL,
                     quality TEXT NOT NULL
                 );
-                CREATE TABLE IF NOT EXISTS v2_backfill_runs (
-                    run_id TEXT PRIMARY KEY,
-                    lineage_id TEXT NOT NULL,
-                    capture_mode TEXT NOT NULL,
-                    source_kind TEXT NOT NULL,
-                    forecast_source_entity TEXT NOT NULL,
-                    actual_power_entity TEXT NOT NULL,
-                    actual_energy_entity TEXT NOT NULL,
-                    timezone TEXT NOT NULL,
-                    source_start_utc TEXT,
-                    source_end_utc TEXT,
-                    forecast_row_count INTEGER NOT NULL,
-                    actual_power_row_count INTEGER NOT NULL,
-                    actual_energy_row_count INTEGER NOT NULL,
-                    payload_sha256 TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    metadata_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS ix_v2_backfill_runs_date
-                    ON v2_backfill_runs(source_kind, source_start_utc);
-                CREATE TABLE IF NOT EXISTS v2_backfill_snapshots (
-                    snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT NOT NULL,
-                    lineage_id TEXT NOT NULL,
-                    snapshot_type TEXT NOT NULL,
-                    target_local_date TEXT NOT NULL,
-                    source_observed_at_utc TEXT NOT NULL,
-                    payload_sha256 TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    admissible INTEGER NOT NULL DEFAULT 0,
-                    exclusion_reason TEXT,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(run_id, snapshot_type, target_local_date),
-                    FOREIGN KEY(run_id) REFERENCES v2_backfill_runs(run_id)
-                );
-                CREATE INDEX IF NOT EXISTS ix_v2_backfill_snapshots_date
-                    ON v2_backfill_snapshots(target_local_date, run_id);
-                CREATE TABLE IF NOT EXISTS v2_backfill_snapshot_intervals (
-                    snapshot_id INTEGER NOT NULL,
-                    interval_start_utc TEXT,
-                    interval_end_utc TEXT NOT NULL,
-                    energy_wh REAL,
-                    duration_seconds REAL,
-                    valid INTEGER NOT NULL,
-                    exclusion_reason TEXT,
-                    PRIMARY KEY(snapshot_id, interval_end_utc),
-                    FOREIGN KEY(snapshot_id) REFERENCES v2_backfill_snapshots(snapshot_id)
-                );
-                CREATE TABLE IF NOT EXISTS v2_backfill_intervals (
-                    run_id TEXT NOT NULL,
-                    lineage_id TEXT NOT NULL,
-                    local_date TEXT NOT NULL,
-                    interval_start_utc TEXT,
-                    interval_end_utc TEXT NOT NULL,
-                    forecast_energy_wh REAL,
-                    actual_energy_wh REAL,
-                    eligible_seconds REAL NOT NULL DEFAULT 0,
-                    actual_covered_seconds REAL NOT NULL DEFAULT 0,
-                    forecast_valid INTEGER NOT NULL DEFAULT 0,
-                    actual_valid INTEGER NOT NULL DEFAULT 0,
-                    paired_valid INTEGER NOT NULL DEFAULT 0,
-                    validity_reason TEXT NOT NULL,
-                    reconciliation_status TEXT,
-                    payload_json TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    PRIMARY KEY(run_id, local_date, interval_start_utc, interval_end_utc),
-                    FOREIGN KEY(run_id) REFERENCES v2_backfill_runs(run_id)
-                );
-                CREATE INDEX IF NOT EXISTS ix_v2_backfill_intervals_date
-                    ON v2_backfill_intervals(run_id, local_date, interval_end_utc);
-                CREATE TABLE IF NOT EXISTS v2_backfill_daily_comparisons (
-                    run_id TEXT NOT NULL,
-                    lineage_id TEXT NOT NULL,
-                    local_date TEXT NOT NULL,
-                    forecast_coverage REAL NOT NULL,
-                    actual_coverage REAL NOT NULL,
-                    paired_coverage REAL NOT NULL,
-                    valid_paired_day INTEGER NOT NULL,
-                    reason TEXT NOT NULL,
-                    actual_kwh REAL,
-                    forecast_kwh REAL,
-                    signed_error_kwh REAL,
-                    absolute_error_kwh REAL,
-                    reconciliation_status TEXT,
-                    payload_json TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    PRIMARY KEY(run_id, local_date),
-                    FOREIGN KEY(run_id) REFERENCES v2_backfill_runs(run_id)
-                );
-                CREATE INDEX IF NOT EXISTS ix_v2_backfill_daily_date
-                    ON v2_backfill_daily_comparisons(local_date, run_id);
-                CREATE TABLE IF NOT EXISTS v2_backfill_accuracy_results (
-                    run_id TEXT NOT NULL,
-                    lineage_id TEXT NOT NULL,
-                    generated_at_utc TEXT NOT NULL,
-                    window_days INTEGER NOT NULL,
-                    valid_days INTEGER NOT NULL,
-                    accuracy_ready INTEGER NOT NULL,
-                    metric_version TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    PRIMARY KEY(run_id, generated_at_utc),
-                    FOREIGN KEY(run_id) REFERENCES v2_backfill_runs(run_id)
-                );
                 """
             )
             if current < 4:
@@ -331,6 +236,11 @@ class SolarAnalyticsV2Store:
                     "WHERE row_number=1"
                 )
                 db.execute("DROP TABLE v2_accuracy_results_v3")
+            if current < 5:
+                # Children first: foreign_keys=ON turns DROP TABLE into an
+                # implicit DELETE FROM, which a surviving child row would veto.
+                for table in _DROPPED_BACKFILL_TABLES:
+                    db.execute(f"DROP TABLE IF EXISTS {table}")
             db.execute(
                 "INSERT INTO meta(key,value) VALUES('schema_version',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -824,267 +734,6 @@ class SolarAnalyticsV2Store:
         result = dict(row)
         result["payload"] = json.loads(result.pop("payload_json"))
         return result
-
-    def create_backfill_lineage(
-        self,
-        *,
-        run_id: str,
-        source_kind: str,
-        source_entity: str,
-        model_fingerprint: str,
-        actual_energy_entity: str,
-        actual_power_entity: str,
-        now: datetime,
-    ) -> str:
-        """Create an isolated historical lineage without changing current native state.
-
-        Callers must pass ``actual_energy_entity`` / ``actual_power_entity``; the
-        integration is installation-agnostic and the store does not know which PV
-        sensors any given user selected.
-        """
-
-        lineage_id = f"backfill-{run_id}"
-        metadata = {
-            "capture_mode": "historical_backfill",
-            "source_kind": source_kind,
-            "source_entity": source_entity,
-            "model_fingerprint": model_fingerprint,
-            "actual_energy_entity": actual_energy_entity,
-            "actual_power_entity": actual_power_entity,
-        }
-        self.db.execute(
-            "INSERT OR IGNORE INTO v2_lineages(lineage_id,contract_key,source_kind,native_entry_id,model_fingerprint,"
-            "actual_energy_entity,actual_power_entity,adapter_version,native_contract_version,normalization_version,"
-            "metric_version,started_at_utc,payload_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                lineage_id,
-                f"historical_backfill:{source_kind}:{source_entity}",
-                source_kind,
-                f"historical:{source_entity}",
-                model_fingerprint,
-                actual_energy_entity,
-                actual_power_entity,
-                "historical-backfill-v1",
-                "historical-forecast-v1",
-                "historical-recorder-period-end-v1",
-                "historical-backfill-morning-v1",
-                now.astimezone(UTC).isoformat(),
-                self._json(metadata),
-            ),
-        )
-        return lineage_id
-
-    def create_backfill_run(
-        self,
-        *,
-        run_id: str,
-        lineage_id: str,
-        source_kind: str,
-        forecast_source_entity: str,
-        actual_power_entity: str,
-        actual_energy_entity: str,
-        timezone_name: str,
-        source_start_utc: datetime | None,
-        source_end_utc: datetime | None,
-        forecast_row_count: int,
-        actual_power_row_count: int,
-        actual_energy_row_count: int,
-        payload_sha256: str,
-        metadata: Mapping[str, Any],
-        status: str,
-    ) -> bool:
-        cursor = self.db.execute(
-            "INSERT OR IGNORE INTO v2_backfill_runs(run_id,lineage_id,capture_mode,source_kind,forecast_source_entity,"
-            "actual_power_entity,actual_energy_entity,timezone,source_start_utc,source_end_utc,forecast_row_count,"
-            "actual_power_row_count,actual_energy_row_count,payload_sha256,status,metadata_json,created_at_utc) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                run_id,
-                lineage_id,
-                "historical_backfill",
-                source_kind,
-                forecast_source_entity,
-                actual_power_entity,
-                actual_energy_entity,
-                timezone_name,
-                source_start_utc.astimezone(UTC).isoformat() if source_start_utc else None,
-                source_end_utc.astimezone(UTC).isoformat() if source_end_utc else None,
-                int(forecast_row_count),
-                int(actual_power_row_count),
-                int(actual_energy_row_count),
-                payload_sha256,
-                status,
-                self._json(metadata),
-                self._now(),
-            ),
-        )
-        return cursor.rowcount == 1
-
-    def list_backfill_runs(self) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for row in self.db.execute(
-            "SELECT * FROM v2_backfill_runs ORDER BY created_at_utc"
-        ).fetchall():
-            item = dict(row)
-            item["metadata"] = json.loads(item.pop("metadata_json") or "{}")
-            result.append(item)
-        return result
-
-    def ensure_backfill_snapshot(
-        self,
-        *,
-        run_id: str,
-        lineage_id: str,
-        snapshot_type: str,
-        target_local_date: date | str,
-        source_observed_at_utc: datetime,
-        payload_sha256: str,
-        status: str,
-        admissible: bool,
-        exclusion_reason: str | None,
-    ) -> tuple[int, bool]:
-        target = (
-            target_local_date.isoformat()
-            if isinstance(target_local_date, date)
-            else str(target_local_date)
-        )
-        cursor = self.db.execute(
-            "INSERT OR IGNORE INTO v2_backfill_snapshots(run_id,lineage_id,snapshot_type,target_local_date,"
-            "source_observed_at_utc,payload_sha256,status,admissible,exclusion_reason,created_at_utc) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (
-                run_id,
-                lineage_id,
-                snapshot_type,
-                target,
-                source_observed_at_utc.astimezone(UTC).isoformat(),
-                payload_sha256,
-                status,
-                int(admissible),
-                exclusion_reason,
-                self._now(),
-            ),
-        )
-        row = self.db.execute(
-            "SELECT snapshot_id FROM v2_backfill_snapshots WHERE run_id=? AND snapshot_type=? AND target_local_date=?",
-            (run_id, snapshot_type, target),
-        ).fetchone()
-        if row is None:
-            raise StorageError("backfill_snapshot_insert_failed")
-        return int(row[0]), cursor.rowcount == 1
-
-    def insert_backfill_snapshot_periods(
-        self, snapshot_id: int, rows: Sequence[Mapping[str, Any]]
-    ) -> None:
-        self.db.executemany(
-            "INSERT OR IGNORE INTO v2_backfill_snapshot_intervals(snapshot_id,interval_start_utc,interval_end_utc,"
-            "energy_wh,duration_seconds,valid,exclusion_reason) VALUES(?,?,?,?,?,?,?)",
-            [
-                (
-                    snapshot_id,
-                    row.get("interval_start_utc"),
-                    row["interval_end_utc"],
-                    row.get("energy_wh"),
-                    row.get("duration_seconds"),
-                    int(bool(row.get("valid"))),
-                    row.get("exclusion_reason"),
-                )
-                for row in rows
-            ],
-        )
-
-    def upsert_backfill_interval(
-        self, *, run_id: str, lineage_id: str, local_date: str, payload: Mapping[str, Any]
-    ) -> None:
-        data = dict(payload)
-        self.db.execute(
-            "INSERT INTO v2_backfill_intervals(run_id,lineage_id,local_date,interval_start_utc,interval_end_utc,"
-            "forecast_energy_wh,actual_energy_wh,eligible_seconds,actual_covered_seconds,forecast_valid,actual_valid,"
-            "paired_valid,validity_reason,reconciliation_status,payload_json,updated_at_utc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(run_id,local_date,interval_start_utc,interval_end_utc) DO UPDATE SET "
-            "forecast_energy_wh=excluded.forecast_energy_wh,actual_energy_wh=excluded.actual_energy_wh,"
-            "eligible_seconds=excluded.eligible_seconds,actual_covered_seconds=excluded.actual_covered_seconds,"
-            "forecast_valid=excluded.forecast_valid,actual_valid=excluded.actual_valid,paired_valid=excluded.paired_valid,"
-            "validity_reason=excluded.validity_reason,reconciliation_status=excluded.reconciliation_status,"
-            "payload_json=excluded.payload_json,updated_at_utc=excluded.updated_at_utc",
-            (
-                run_id,
-                lineage_id,
-                local_date,
-                data.get("interval_start_utc"),
-                data["interval_end_utc"],
-                data.get("forecast_energy_wh"),
-                data.get("actual_energy_wh"),
-                data.get("eligible_seconds", 0.0),
-                data.get("actual_covered_seconds", 0.0),
-                int(bool(data.get("forecast_valid"))),
-                int(bool(data.get("actual_valid"))),
-                int(bool(data.get("paired_valid"))),
-                data.get("validity_reason", "unknown"),
-                data.get("reconciliation_status"),
-                self._json(data),
-                self._now(),
-            ),
-        )
-
-    def upsert_backfill_daily(
-        self, *, run_id: str, lineage_id: str, payload: Mapping[str, Any]
-    ) -> None:
-        data = dict(payload)
-        self.db.execute(
-            "INSERT INTO v2_backfill_daily_comparisons(run_id,lineage_id,local_date,forecast_coverage,actual_coverage,"
-            "paired_coverage,valid_paired_day,reason,actual_kwh,forecast_kwh,signed_error_kwh,absolute_error_kwh,"
-            "reconciliation_status,payload_json,updated_at_utc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(run_id,local_date) DO UPDATE SET forecast_coverage=excluded.forecast_coverage,"
-            "actual_coverage=excluded.actual_coverage,paired_coverage=excluded.paired_coverage,"
-            "valid_paired_day=excluded.valid_paired_day,reason=excluded.reason,actual_kwh=excluded.actual_kwh,"
-            "forecast_kwh=excluded.forecast_kwh,signed_error_kwh=excluded.signed_error_kwh,"
-            "absolute_error_kwh=excluded.absolute_error_kwh,reconciliation_status=excluded.reconciliation_status,"
-            "payload_json=excluded.payload_json,updated_at_utc=excluded.updated_at_utc",
-            (
-                run_id,
-                lineage_id,
-                data["local_date"],
-                data.get("forecast_coverage", 0.0),
-                data.get("actual_coverage", 0.0),
-                data.get("paired_coverage", 0.0),
-                int(bool(data.get("valid_paired_day"))),
-                data.get("reason", "insufficient_data"),
-                data.get("actual_kwh"),
-                data.get("forecast_kwh"),
-                data.get("signed_error_kwh"),
-                data.get("absolute_error_kwh"),
-                data.get("reconciliation_status"),
-                self._json(data),
-                self._now(),
-            ),
-        )
-
-    def save_backfill_accuracy(
-        self,
-        *,
-        run_id: str,
-        lineage_id: str,
-        generated_at: datetime,
-        window_days: int,
-        valid_days: int,
-        accuracy_ready: bool,
-        payload: Mapping[str, Any],
-    ) -> None:
-        self.db.execute("DELETE FROM v2_backfill_accuracy_results WHERE run_id=?", (run_id,))
-        self.db.execute(
-            "INSERT INTO v2_backfill_accuracy_results(run_id,lineage_id,generated_at_utc,window_days,"
-            "valid_days,accuracy_ready,metric_version,payload_json) VALUES(?,?,?,?,?,?,?,?)",
-            (
-                run_id,
-                lineage_id,
-                generated_at.astimezone(UTC).isoformat(),
-                int(window_days),
-                int(valid_days),
-                int(accuracy_ready),
-                "historical-backfill-morning-v1",
-                self._json(payload),
-            ),
-        )
 
     def integrity_check(self) -> str:
         row = self.db.execute("PRAGMA integrity_check").fetchone()

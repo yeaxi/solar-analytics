@@ -262,12 +262,6 @@ def normalize_native_wh_hours(
     )
 
 
-def parse_native_profile(payload: Mapping[str, Any]) -> NativeProfile:
-    """Compatibility alias used by the adapter and tests."""
-
-    return normalize_native_wh_hours(payload)
-
-
 def local_day_bounds_utc(local_date: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
     """Return the UTC instants bounding one local day.
 
@@ -310,10 +304,3 @@ def clip_period_to_local_date(
     if clipped_start >= clipped_end:
         return None
     return clipped_start, clipped_end
-
-
-def period_coverage_seconds(period: NativePeriod, coverage_seconds: float) -> float:
-    """Clamp actual coverage to a valid native period duration."""
-
-    duration = period.duration_seconds or 0.0
-    return min(max(float(coverage_seconds), 0.0), duration)
