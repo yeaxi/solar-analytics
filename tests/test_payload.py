@@ -183,6 +183,7 @@ def _ready_inputs() -> dict:
         ],
         "lineage_id": "lineage-abc",
         "reconciliation_status": "reconciled",
+        "imported_history": {"status": "uninitialized", "points": []},
         "now_utc": _now(),
     }
 
@@ -301,3 +302,48 @@ def test_hermes_json_is_deterministic_and_canonical(payload_module) -> None:
     second = payload_module.build_payload(**_ready_inputs())
     assert first["hermes_json"] == second["hermes_json"]
     assert first["hermes_json"].startswith("{")
+
+
+def _imported_rows(count: int) -> list[dict]:
+    return [
+        {
+            "local_date": f"2026-{1 + day // 28:02d}-{1 + day % 28:02d}",
+            "energy_kwh": 1.0,
+            "coverage": 1.0,
+            "counter_resets": 0,
+        }
+        for day in range(count)
+    ]
+
+
+def test_imported_history_block_is_labelled_and_capped(payload_module) -> None:
+    block = payload_module.build_imported_history_block(
+        status="imported",
+        source_entity_id="sensor.example_pv_energy",
+        rows=_imported_rows(240),
+    )
+
+    assert block["provenance"] == "reconstructed_from_recorder_statistics"
+    assert block["source_entity"] == "sensor.example_pv_energy"
+    assert block["day_count"] == 240
+    assert block["total_kwh"] == 240.0
+    assert len(block["points"]) == 180
+    assert block["points"][-1][0] == _imported_rows(240)[-1]["local_date"]
+
+
+def test_imported_history_never_reaches_accuracy_or_daily_points(payload_module) -> None:
+    inputs = _ready_inputs()
+    inputs["accuracy"] = {"accuracy_ready": False, "status": "insufficient_data"}
+    inputs["imported_history"] = payload_module.build_imported_history_block(
+        status="imported",
+        source_entity_id="sensor.example_pv_energy",
+        rows=_imported_rows(30),
+    )
+
+    result = payload_module.build_payload(**inputs)
+
+    assert result["status"] == "insufficient_data"
+    assert result["accuracy"] == {"accuracy_ready": False, "status": "insufficient_data"}
+    assert result["analysis_valid"] is False
+    assert all(point[0] != "2026-01-01" for point in result["daily_points"])
+    assert result["imported_actual_history"]["day_count"] == 30

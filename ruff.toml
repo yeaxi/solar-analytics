@@ -27,13 +27,15 @@ ignore = [
 
 [lint.per-file-ignores]
 # Tests intentionally use composite asserts, per-test HA-stub imports inside
-# functions, and small helper classes with mutable class attributes.
+# functions, and small helper classes with mutable class attributes. Stubs of
+# Home Assistant APIs also mirror their wide positional signatures verbatim.
 "tests/*" = [
     "B011",
     "E701",
     "E702",
     "PLC0415",
     "PLR0911",
+    "PLR0917",
     "PT018",
     "RUF012",
     "RUF043",
