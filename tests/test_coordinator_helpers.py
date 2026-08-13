@@ -8,133 +8,43 @@ timezone-correct scheduler that replaced the buggy
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 import types
 from datetime import UTC, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import pytest
 
-COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
-
-
-def _load_coordinator_helpers():
-    """Import coordinator.py with a minimal HA stub, then hand back the helpers.
-
-    Only the pure functions ``_next_local_hour_utc`` and ``_default_time_zone``
-    are exercised; no ``SolarAnalyticsCoordinator`` instance is constructed.
-    """
-
-    if "custom_components.solar_analytics.coordinator" in sys.modules:
-        return sys.modules["custom_components.solar_analytics.coordinator"]
-
-    ha = types.ModuleType("homeassistant")
-    ha_const = types.ModuleType("homeassistant.const")
-    ha_config = types.ModuleType("homeassistant.config_entries")
-    ha_config.ConfigEntry = object
-    ha_core = types.ModuleType("homeassistant.core")
-    ha_core.HomeAssistant = object
-
-    def _passthrough_callback(func):
-        return func
-
-    ha_core.callback = _passthrough_callback
-    ha_helpers = types.ModuleType("homeassistant.helpers")
-    ha_helpers_ir = types.ModuleType("homeassistant.helpers.issue_registry")
-
-    class _IssueSeverity:
-        WARNING = "warning"
-        ERROR = "error"
-
-    ha_helpers_ir.IssueSeverity = _IssueSeverity
-    ha_helpers_ir.async_create_issue = lambda *args, **kwargs: None
-    ha_helpers_ir.async_delete_issue = lambda *args, **kwargs: None
-
-    ha_helpers_event = types.ModuleType("homeassistant.helpers.event")
-    ha_helpers_event.async_track_point_in_utc_time = lambda hass, action, when: lambda: None
-    ha_helpers_update = types.ModuleType("homeassistant.helpers.update_coordinator")
-
-    from typing import Generic, TypeVar
-
-    _T = TypeVar("_T")
-
-    class _StubCoordinator(Generic[_T]):
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class _StubUpdateFailed(Exception):
-        pass
-
-    ha_helpers_update.DataUpdateCoordinator = _StubCoordinator
-    ha_helpers_update.UpdateFailed = _StubUpdateFailed
-    sys.modules.update(
-        {
-            "homeassistant": ha,
-            "homeassistant.const": ha_const,
-            "homeassistant.config_entries": ha_config,
-            "homeassistant.core": ha_core,
-            "homeassistant.helpers": ha_helpers,
-            "homeassistant.helpers.issue_registry": ha_helpers_ir,
-            "homeassistant.helpers.event": ha_helpers_event,
-            "homeassistant.helpers.update_coordinator": ha_helpers_update,
-        }
-    )
-    parent = types.ModuleType("custom_components")
-    parent.__path__ = [str(COMPONENT.parent)]
-    package = types.ModuleType("custom_components.solar_analytics")
-    package.__path__ = [str(COMPONENT)]
-    sys.modules["custom_components"] = parent
-    sys.modules["custom_components.solar_analytics"] = package
-
-    spec = importlib.util.spec_from_file_location(
-        "custom_components.solar_analytics.coordinator",
-        COMPONENT / "coordinator.py",
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["custom_components.solar_analytics.coordinator"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.fixture(scope="module")
-def helpers():
-    return _load_coordinator_helpers()
-
-
-def test_next_local_hour_advances_to_today_when_hour_is_still_ahead(helpers) -> None:
+def test_next_local_hour_advances_to_today_when_hour_is_still_ahead(coordinator_module) -> None:
     tz = ZoneInfo("America/Los_Angeles")
     # 2026-08-11 03:30 in Los Angeles == 2026-08-11 10:30 UTC (PDT, UTC-7).
     now_utc = datetime(2026, 8, 11, 10, 30, tzinfo=UTC)
 
-    result = helpers._next_local_hour_utc(now_utc, tz, 6)
+    result = coordinator_module._next_local_hour_utc(now_utc, tz, 6)
 
     # 2026-08-11 06:00 LA == 2026-08-11 13:00 UTC.
     assert result == datetime(2026, 8, 11, 13, 0, tzinfo=UTC)
 
 
-def test_next_local_hour_advances_to_tomorrow_when_hour_is_already_past(helpers) -> None:
+def test_next_local_hour_advances_to_tomorrow_when_hour_is_already_past(coordinator_module) -> None:
     tz = ZoneInfo("America/Los_Angeles")
     # 2026-08-11 07:30 LA == 2026-08-11 14:30 UTC.
     now_utc = datetime(2026, 8, 11, 14, 30, tzinfo=UTC)
 
-    result = helpers._next_local_hour_utc(now_utc, tz, 6)
+    result = coordinator_module._next_local_hour_utc(now_utc, tz, 6)
 
     # 2026-08-12 06:00 LA == 2026-08-12 13:00 UTC.
     assert result == datetime(2026, 8, 12, 13, 0, tzinfo=UTC)
 
 
-def test_next_local_hour_respects_configured_timezone_not_utc(helpers) -> None:
+def test_next_local_hour_respects_configured_timezone_not_utc(coordinator_module) -> None:
     """Scheduling must fire at the configured-TZ hour regardless of HA's own TZ."""
 
     kyiv = ZoneInfo("Europe/Kyiv")
     la = ZoneInfo("America/Los_Angeles")
     now_utc = datetime(2026, 8, 11, 0, 30, tzinfo=UTC)
 
-    kyiv_next = helpers._next_local_hour_utc(now_utc, kyiv, 6)
-    la_next = helpers._next_local_hour_utc(now_utc, la, 6)
+    kyiv_next = coordinator_module._next_local_hour_utc(now_utc, kyiv, 6)
+    la_next = coordinator_module._next_local_hour_utc(now_utc, la, 6)
 
     # 06:00 Kyiv (UTC+3, no DST in this period) == 03:00 UTC.
     assert kyiv_next.astimezone(kyiv).hour == 6
@@ -144,44 +54,44 @@ def test_next_local_hour_respects_configured_timezone_not_utc(helpers) -> None:
     assert kyiv_next != la_next
 
 
-def test_next_local_hour_survives_dst_spring_forward(helpers) -> None:
+def test_next_local_hour_survives_dst_spring_forward(coordinator_module) -> None:
     """Scheduling for 06:00 local on a DST transition day still returns 06:00 local."""
 
     kyiv = ZoneInfo("Europe/Kyiv")
     # Kyiv 2026 spring-forward is Sunday 2026-03-29 03:00 local -> 04:00 local.
     # Ask for the next 06:00 local from Saturday evening.
     now_utc = datetime(2026, 3, 28, 20, 0, tzinfo=UTC)
-    result = helpers._next_local_hour_utc(now_utc, kyiv, 6)
+    result = coordinator_module._next_local_hour_utc(now_utc, kyiv, 6)
 
     result_local = result.astimezone(kyiv)
     assert result_local.hour == 6
     assert result_local.date().isoformat() == "2026-03-29"
 
 
-def test_default_time_zone_prefers_hass_config(helpers) -> None:
+def test_default_time_zone_prefers_hass_config(coordinator_module) -> None:
     class _Hass:
         class config:  # type: ignore[no-redef]
             time_zone = "Europe/Berlin"
 
-    assert helpers._default_time_zone(_Hass()) == "Europe/Berlin"
+    assert coordinator_module._default_time_zone(_Hass()) == "Europe/Berlin"
 
 
-def test_default_time_zone_falls_back_to_utc(helpers) -> None:
+def test_default_time_zone_falls_back_to_utc(coordinator_module) -> None:
     class _Hass:
         class config:  # type: ignore[no-redef]
             time_zone = None
 
-    assert helpers._default_time_zone(_Hass()) == "UTC"
+    assert coordinator_module._default_time_zone(_Hass()) == "UTC"
 
 
-def test_default_time_zone_falls_back_when_hass_has_no_config_attr(helpers) -> None:
+def test_default_time_zone_falls_back_when_hass_has_no_config_attr(coordinator_module) -> None:
     class _Hass:
         pass
 
-    assert helpers._default_time_zone(_Hass()) == "UTC"
+    assert coordinator_module._default_time_zone(_Hass()) == "UTC"
 
 
-def test_maintain_repair_issues_creates_active_and_clears_the_rest(helpers) -> None:
+def test_maintain_repair_issues_creates_active_and_clears_the_rest(coordinator_module) -> None:
     """The coordinator raises exactly one issue at a time and clears the others."""
 
     created: list[tuple[str, dict]] = []
@@ -198,7 +108,7 @@ def test_maintain_repair_issues_creates_active_and_clears_the_rest(helpers) -> N
     ir.async_delete_issue = _delete
 
     shell = types.SimpleNamespace(hass=object())
-    helpers.SolarAnalyticsCoordinator._maintain_repair_issues(
+    coordinator_module.SolarAnalyticsCoordinator._maintain_repair_issues(
         shell, "canonical_actual_mismatch", "reason:power_missing"
     )
 
@@ -217,7 +127,7 @@ def test_maintain_repair_issues_creates_active_and_clears_the_rest(helpers) -> N
     }
 
 
-def test_maintain_repair_issues_marks_informational_issues_non_fixable(helpers) -> None:
+def test_maintain_repair_issues_marks_informational_issues_non_fixable(coordinator_module) -> None:
     created: list[tuple[str, dict]] = []
     ir = sys.modules["homeassistant.helpers.issue_registry"]
     ir.async_create_issue = lambda hass, domain, issue_id, **kwargs: created.append(
@@ -226,7 +136,7 @@ def test_maintain_repair_issues_marks_informational_issues_non_fixable(helpers) 
     ir.async_delete_issue = lambda *args, **kwargs: None
 
     shell = types.SimpleNamespace(hass=object())
-    helpers.SolarAnalyticsCoordinator._maintain_repair_issues(
+    coordinator_module.SolarAnalyticsCoordinator._maintain_repair_issues(
         shell, "binding_ambiguous", "solar_source_count:0"
     )
 
@@ -236,7 +146,7 @@ def test_maintain_repair_issues_marks_informational_issues_non_fixable(helpers) 
     assert kwargs["is_fixable"] is False
 
 
-def test_maintain_repair_issues_clears_everything_on_healthy_binding(helpers) -> None:
+def test_maintain_repair_issues_clears_everything_on_healthy_binding(coordinator_module) -> None:
     """When the binding is 'ok' every managed issue is deleted, none is created."""
 
     created: list[str] = []
@@ -246,7 +156,7 @@ def test_maintain_repair_issues_clears_everything_on_healthy_binding(helpers) ->
     ir.async_delete_issue = lambda hass, domain, issue_id: deleted.append(issue_id)
 
     shell = types.SimpleNamespace(hass=object())
-    helpers.SolarAnalyticsCoordinator._maintain_repair_issues(shell, "ok", None)
+    coordinator_module.SolarAnalyticsCoordinator._maintain_repair_issues(shell, "ok", None)
 
     assert created == []
     assert set(deleted) == {
@@ -259,7 +169,7 @@ def test_maintain_repair_issues_clears_everything_on_healthy_binding(helpers) ->
     }
 
 
-def test_log_native_status_transition_logs_once_per_transition(helpers, caplog) -> None:
+def test_log_native_status_transition_logs_once_per_transition(coordinator_module, caplog) -> None:
     """Repeated identical statuses log once; a recovery emits an info line."""
 
     import logging as _logging
@@ -268,10 +178,10 @@ def test_log_native_status_transition_logs_once_per_transition(helpers, caplog) 
 
     caplog.set_level(_logging.WARNING)
     caplog.clear()
-    helpers.SolarAnalyticsCoordinator._log_native_status_transition(
+    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(
         shell, "native_source_unavailable", "native_update_not_observed"
     )
-    helpers.SolarAnalyticsCoordinator._log_native_status_transition(
+    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(
         shell, "native_source_unavailable", "native_update_not_observed"
     )
     warnings = [r for r in caplog.records if r.levelno == _logging.WARNING]
@@ -280,14 +190,16 @@ def test_log_native_status_transition_logs_once_per_transition(helpers, caplog) 
 
     caplog.set_level(_logging.INFO)
     caplog.clear()
-    helpers.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
-    helpers.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
+    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
+    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
     infos = [r for r in caplog.records if r.levelno == _logging.INFO]
     assert len(infos) == 1
     assert "recovered" in infos[0].message
 
 
-def test_log_native_status_transition_stays_quiet_on_boot_when_healthy(helpers, caplog) -> None:
+def test_log_native_status_transition_stays_quiet_on_boot_when_healthy(
+    coordinator_module, caplog
+) -> None:
     """First observation of 'ok' does not log anything (no prior failure to recover from)."""
 
     import logging as _logging
@@ -295,5 +207,5 @@ def test_log_native_status_transition_stays_quiet_on_boot_when_healthy(helpers, 
     shell = types.SimpleNamespace(_logged_native_status=None)
     caplog.set_level(_logging.INFO)
     caplog.clear()
-    helpers.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
+    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
     assert caplog.records == []

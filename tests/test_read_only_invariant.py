@@ -22,7 +22,7 @@ COMPONENT = ROOT / "custom_components" / "solar_analytics"
 
 
 def _source_files() -> list[Path]:
-    return sorted(COMPONENT.glob("*.py"))
+    return sorted(COMPONENT.rglob("*.py"))
 
 
 def _source_text(path: Path) -> str:

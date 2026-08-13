@@ -71,6 +71,8 @@ SQLite migrations are additive, transactional, and version checked. Every native
 
 Forecast periods require valid timestamps, non-negative finite Wh values, complete period semantics, and admissible native lineage. Actual PV requires fresh numeric states with the expected device/state/unit contracts. Daily pairing requires forecast coverage at least 95%, actual coverage at least 90%, and a valid morning baseline. Accuracy readiness requires 14 valid paired days in a rolling 30-day window.
 
+Coverage is measured against the true length of the local day on the UTC timeline, so a DST transition day is 23 or 25 hours rather than 24. The single zero-Wh forecast cell that Forecast.Solar emits for the night straddles local midnight; it is clipped at the boundary and counted for both adjacent days, because splitting zero energy loses nothing. A boundary-crossing cell that carries energy is excluded instead of being apportioned by time.
+
 ## Verification matrix
 
 Local checks cover normalization, timestamps, DST, gaps, duplicates, runtime replacement, migration, storage integrity, overwrite semantics, diagnostics redaction, and absence of physical service calls. Real-HA checks cover setup, unload, runtime listener observation, `ha core check`, readiness, targeted logs, SQLite integrity, lineage, and bounded row counts.

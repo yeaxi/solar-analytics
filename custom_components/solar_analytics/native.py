@@ -17,9 +17,6 @@ from zoneinfo import ZoneInfo
 
 from .const import VERSION as _INTEGRATION_VERSION
 
-# Convenient default timezone for pure-function tests only. Runtime callers
-# always pass the user-configured ZoneInfo explicitly.
-KYIV = ZoneInfo("Europe/Kyiv")
 NATIVE_CONTRACT_VERSION = "ha_forecast_solar_energy_2026.7"
 NATIVE_ADAPTER_VERSION = _INTEGRATION_VERSION
 MAX_NATIVE_PERIOD_SECONDS = 2 * 60 * 60
@@ -271,27 +268,48 @@ def parse_native_profile(payload: Mapping[str, Any]) -> NativeProfile:
     return normalize_native_wh_hours(payload)
 
 
-def periods_for_local_date(
-    profile: NativeProfile,
-    local_date: date,
-    *,
-    tz: ZoneInfo = KYIV,
-) -> tuple[NativePeriod, ...]:
-    """Select whole UTC periods contained in one local day.
+def local_day_bounds_utc(local_date: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    """Return the UTC instants bounding one local day.
 
-    A period crossing a local-day boundary is excluded instead of assigning its
-    complete energy to one side. This prevents midnight/DST denominator leakage.
+    Both midnights are converted to UTC before any caller subtracts them:
+    subtracting two aware datetimes that share a ``tzinfo`` compares wall clocks
+    and reports 24h even on the 23h and 25h DST transition days.
     """
 
     day_start = datetime.combine(local_date, time.min, tzinfo=tz).astimezone(UTC)
     day_end = datetime.combine(local_date + timedelta(days=1), time.min, tzinfo=tz).astimezone(UTC)
-    return tuple(
-        period
-        for period in profile.valid_periods
-        if period.start_utc is not None
-        and period.start_utc >= day_start
-        and period.end_utc <= day_end
-    )
+    return day_start, day_end
+
+
+def clip_period_to_local_date(
+    start_utc: datetime | None,
+    end_utc: datetime,
+    energy_wh: float | None,
+    local_date: date,
+    *,
+    tz: ZoneInfo,
+) -> tuple[datetime, datetime] | None:
+    """Return the part of one native period that belongs to ``local_date``.
+
+    Forecast.Solar reports the whole night as a single zero-Wh cell straddling
+    local midnight, so such a cell is clipped to the day window and counted for
+    both adjacent days; splitting 0 Wh across a boundary loses no energy. A
+    crossing period that carries energy is excluded instead of being apportioned
+    by time.
+    """
+
+    if start_utc is None or start_utc >= end_utc:
+        return None
+    day_start, day_end = local_day_bounds_utc(local_date, tz)
+    if start_utc >= day_start and end_utc <= day_end:
+        return start_utc, end_utc
+    if energy_wh != 0.0:
+        return None
+    clipped_start = max(start_utc, day_start)
+    clipped_end = min(end_utc, day_end)
+    if clipped_start >= clipped_end:
+        return None
+    return clipped_start, clipped_end
 
 
 def period_coverage_seconds(period: NativePeriod, coverage_seconds: float) -> float:

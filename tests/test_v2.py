@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
-from solar_analytics.native import normalize_native_wh_hours, periods_for_local_date
+from solar_analytics.native import (
+    clip_period_to_local_date,
+    local_day_bounds_utc,
+    normalize_native_wh_hours,
+)
 from solar_analytics.storage_v2 import SolarAnalyticsV2Store
 from solar_analytics.v2_metrics import (
     compute_accuracy,
@@ -16,9 +21,11 @@ from solar_analytics.v2_metrics import (
 
 # Test-only fixture values; the shipping integration resolves these
 # entity IDs at runtime from the user's config-flow selection or from
-# the Home Assistant Energy Dashboard.
+# the Home Assistant Energy Dashboard, and the timezone from its own
+# config entry.
 POWER_ENTITY = "sensor.example_pv_power"
 ENERGY_ENTITY = "sensor.example_pv_energy"
+KYIV = ZoneInfo("Europe/Kyiv")
 
 
 def _payload(*values: tuple[str, float]) -> dict[str, dict[str, float]]:
@@ -82,17 +89,36 @@ def test_native_contract_rejects_gap_nonfinite_and_naive_timestamps() -> None:
     assert malformed.invalid_count >= 1
 
 
-def test_native_day_selection_excludes_midnight_crossing_period() -> None:
-    profile = normalize_native_wh_hours(
-        _payload(
-            ("2026-08-02T20:30:00+00:00", 10),
-            ("2026-08-02T21:30:00+00:00", 20),
-            ("2026-08-02T22:30:00+00:00", 30),
-        )
+def test_local_day_bounds_span_the_real_length_of_a_dst_day() -> None:
+    for day, seconds in (
+        (date(2026, 3, 29), 82800),
+        (date(2026, 10, 25), 90000),
+        (date(2026, 8, 10), 86400),
+    ):
+        day_start, day_end = local_day_bounds_utc(day, KYIV)
+        assert (day_end - day_start).total_seconds() == seconds
+
+
+def test_day_boundary_clip_admits_the_zero_energy_night_and_rejects_energetic_crossings() -> None:
+    target = date(2026, 8, 3)
+    day_start, day_end = local_day_bounds_utc(target, KYIV)
+    assert day_start == datetime(2026, 8, 2, 21, tzinfo=UTC)
+    assert day_end == datetime(2026, 8, 3, 21, tzinfo=UTC)
+
+    inside = (datetime(2026, 8, 3, 6, tzinfo=UTC), datetime(2026, 8, 3, 7, tzinfo=UTC))
+    assert clip_period_to_local_date(*inside, 900.0, target, tz=KYIV) == inside
+
+    night = (datetime(2026, 8, 2, 17, tzinfo=UTC), datetime(2026, 8, 3, 2, tzinfo=UTC))
+    assert clip_period_to_local_date(*night, 0.0, target, tz=KYIV) == (day_start, night[1])
+    assert clip_period_to_local_date(*night, 0.0, date(2026, 8, 2), tz=KYIV) == (
+        night[0],
+        day_start,
     )
-    selected = periods_for_local_date(profile, date(2026, 8, 3))
-    assert len(selected) == 1
-    assert selected[0].energy_wh == 30
+
+    assert clip_period_to_local_date(*night, 30.0, target, tz=KYIV) is None
+    assert clip_period_to_local_date(None, night[1], 0.0, target, tz=KYIV) is None
+    assert clip_period_to_local_date(*night, None, target, tz=KYIV) is None
+    assert clip_period_to_local_date(*inside, 0.0, date(2026, 8, 5), tz=KYIV) is None
 
 
 def test_schedule_is_fixed_local_time_and_dst_aware() -> None:

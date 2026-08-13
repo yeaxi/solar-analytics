@@ -8,8 +8,12 @@ helpers, as ``solar_analytics.<module>`` via the path shim below.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
+import types
 from pathlib import Path
+
+import pytest
 
 _COMPONENT_DIR = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
 
@@ -23,9 +27,6 @@ def _register_solar_analytics_path_alias() -> None:
     ``solar_analytics`` alias that resolves to the same directory. This avoids
     keeping a byte-identical duplicate of every helper module at the repo root.
     """
-
-    import importlib
-    import types
 
     if "solar_analytics" in sys.modules:
         return
@@ -41,6 +42,91 @@ def _register_solar_analytics_path_alias() -> None:
         module = importlib.util.module_from_spec(spec)
         sys.modules[f"solar_analytics.{helper}"] = module
         spec.loader.exec_module(module)
+
+
+def _load_coordinator_module():
+    """Import ``coordinator.py`` against a minimal Home Assistant stub.
+
+    The coordinator's module-level helpers and its synchronous store methods are
+    exercised without constructing a ``SolarAnalyticsCoordinator`` or a real
+    Home Assistant runtime.
+    """
+
+    if "custom_components.solar_analytics.coordinator" in sys.modules:
+        return sys.modules["custom_components.solar_analytics.coordinator"]
+
+    ha = types.ModuleType("homeassistant")
+    ha_const = types.ModuleType("homeassistant.const")
+    ha_config = types.ModuleType("homeassistant.config_entries")
+    ha_config.ConfigEntry = object
+    ha_core = types.ModuleType("homeassistant.core")
+    ha_core.HomeAssistant = object
+
+    def _passthrough_callback(func):
+        return func
+
+    ha_core.callback = _passthrough_callback
+    ha_helpers = types.ModuleType("homeassistant.helpers")
+    ha_helpers_ir = types.ModuleType("homeassistant.helpers.issue_registry")
+
+    class _IssueSeverity:
+        WARNING = "warning"
+        ERROR = "error"
+
+    ha_helpers_ir.IssueSeverity = _IssueSeverity
+    ha_helpers_ir.async_create_issue = lambda *args, **kwargs: None
+    ha_helpers_ir.async_delete_issue = lambda *args, **kwargs: None
+
+    ha_helpers_event = types.ModuleType("homeassistant.helpers.event")
+    ha_helpers_event.async_track_point_in_utc_time = lambda hass, action, when: lambda: None
+    ha_helpers_update = types.ModuleType("homeassistant.helpers.update_coordinator")
+
+    from typing import Generic, TypeVar
+
+    _T = TypeVar("_T")
+
+    class _StubCoordinator(Generic[_T]):
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _StubUpdateFailed(Exception):
+        pass
+
+    ha_helpers_update.DataUpdateCoordinator = _StubCoordinator
+    ha_helpers_update.UpdateFailed = _StubUpdateFailed
+    sys.modules.update(
+        {
+            "homeassistant": ha,
+            "homeassistant.const": ha_const,
+            "homeassistant.config_entries": ha_config,
+            "homeassistant.core": ha_core,
+            "homeassistant.helpers": ha_helpers,
+            "homeassistant.helpers.issue_registry": ha_helpers_ir,
+            "homeassistant.helpers.event": ha_helpers_event,
+            "homeassistant.helpers.update_coordinator": ha_helpers_update,
+        }
+    )
+    parent = types.ModuleType("custom_components")
+    parent.__path__ = [str(_COMPONENT_DIR.parent)]
+    package = types.ModuleType("custom_components.solar_analytics")
+    package.__path__ = [str(_COMPONENT_DIR)]
+    sys.modules["custom_components"] = parent
+    sys.modules["custom_components.solar_analytics"] = package
+
+    spec = importlib.util.spec_from_file_location(
+        "custom_components.solar_analytics.coordinator",
+        _COMPONENT_DIR / "coordinator.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["custom_components.solar_analytics.coordinator"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="session")
+def coordinator_module():
+    return _load_coordinator_module()
 
 
 _register_solar_analytics_path_alias()
