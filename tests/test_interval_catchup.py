@@ -49,6 +49,24 @@ class _CountingStore:
         return self._store.integrate_accumulators(start, end)
 
 
+class _FailingStore(_CountingStore):
+    """Counting store that fails partway through one day's interval writes."""
+
+    def __init__(self, store: SolarAnalyticsV2Store, *, fail_on: date, after_writes: int) -> None:
+        super().__init__(store)
+        self.fail_on = fail_on.isoformat()
+        self.after_writes = after_writes
+        self.armed = True
+        self.writes = 0
+
+    def upsert_interval(self, payload: Any) -> None:
+        if self.armed and payload["target_local_date"] == self.fail_on:
+            if self.writes >= self.after_writes:
+                raise RuntimeError("simulated interval write failure")
+            self.writes += 1
+        self._store.upsert_interval(payload)
+
+
 def _cells(day: date) -> list[dict[str, Any]]:
     rows = []
     for index in range(CELLS_PER_DAY):
@@ -323,6 +341,45 @@ def test_a_direct_upgrade_replays_a_pre_clipping_day_and_clears_the_gate(
 
     assert counter.windows == []
     assert store.list_intervals(lineage_id=lineage_id, local_date=target.isoformat()) == intervals
+    store.close()
+
+
+def test_a_failure_partway_through_a_day_leaves_that_day_out_of_the_marker(
+    coordinator_shell, tmp_path: Path
+) -> None:
+    """The marker may only cover a day whose rows are all written.
+
+    The write that fails here happens after one interval row of that day has
+    already been committed and before the marker is written, which is the
+    ordering the pass depends on. The day must be absent from the marker, and the
+    retry must converge on the same rows rather than add a second copy.
+    """
+
+    written_day = TODAY - timedelta(days=2)
+    failing_day = TODAY - timedelta(days=1)
+    store, lineage_id = _seed(tmp_path, [written_day, failing_day])
+    proxy = _FailingStore(store, fail_on=failing_day, after_writes=1)
+    shell = coordinator_shell(store=proxy, time_zone=KYIV)
+    now = _local_noon(TODAY)
+
+    with pytest.raises(RuntimeError):
+        shell._process_recent_intervals_sync(lineage_id, now)
+
+    partial = store.list_intervals(lineage_id=lineage_id, local_date=failing_day.isoformat())
+    assert _marker(store)["finalized_through"] == written_day.isoformat()
+    assert len(partial) == 1
+
+    proxy.armed = False
+    proxy.windows.clear()
+    shell._process_recent_intervals_sync(lineage_id, now)
+
+    assert _days_touched(proxy) == {failing_day}
+    assert (
+        len(store.list_intervals(lineage_id=lineage_id, local_date=failing_day.isoformat()))
+        == CELLS_PER_DAY
+    )
+    assert len(store.list_intervals(lineage_id=lineage_id)) == 2 * CELLS_PER_DAY
+    assert _marker(store)["finalized_through"] == failing_day.isoformat()
     store.close()
 
 

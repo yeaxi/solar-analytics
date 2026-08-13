@@ -635,13 +635,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return status
 
     def _process_recent_intervals_sync(self, lineage_id: str, now_utc: datetime) -> None:
-        """Rebuild interval rows for every local day that is not finished yet.
-
-        A finished day's rows can never change, so days at or below the stored
-        finalization marker are skipped. Without a trustworthy marker every
-        retained admissible day is rebuilt once, which is what carries a direct
-        upgrade from a build whose coverage semantics differed.
-        """
+        """Rebuild interval rows for every local day above the finalization marker."""
 
         today = now_utc.astimezone(self.time_zone).date()
         timezone_name = str(self.time_zone)
@@ -666,11 +660,6 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for local_day, slot in sorted(pending, key=lambda item: item[0]):
             self._build_day_intervals_sync(lineage_id, slot, local_day, now_utc)
             if local_day <= final_through:
-                # Every write here autocommits, so the marker can only land after
-                # that day's rows are already durable. A crash in between replays
-                # the day, which is idempotent. Wrapping the catch-up in one
-                # transaction would hold a write lock across unrelated writers,
-                # who do not share this store's lock.
                 self.store.set_runtime(
                     WATERMARK_RUNTIME_KEY,
                     FinalizationWatermark(
