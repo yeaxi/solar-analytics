@@ -163,6 +163,17 @@
         }
       },
       "daily_comparison": {"name": "Щоденне порівняння"},
+      "imported_actual_history": {
+        "name": "Імпортована фактична історія",
+        "state": {
+          "uninitialized": "Ще не імпортовано",
+          "imported": "Імпортовано",
+          "no_statistics": "Немає статистики в Recorder",
+          "no_actual_energy_entity": "Немає сенсора фактичної енергії PV",
+          "recorder_unavailable": "Recorder недоступний",
+          "import_failed": "Помилка імпорту"
+        }
+      },
       "future_profile": {
         "name": "Майбутній профіль",
         "state": {
