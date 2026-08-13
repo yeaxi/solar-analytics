@@ -493,7 +493,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             anchor_value = float(anchor["value_kwh"])
             delta = float(actual_energy.value) - anchor_value
             anchor_time = _parse_iso(anchor.get("observed_at_utc")) or now_utc
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             self.store.set_runtime(
                 key,
                 {

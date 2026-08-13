@@ -10,9 +10,11 @@ Brief description of what this PR changes.
 
 ## Verification
 
-- `python -m pytest -q` output:
 - `ruff check .` clean: yes / no
+- `ruff format --check .` clean: yes / no
+- `mypy` clean: yes / no
 - `python -m compileall -q custom_components/solar_analytics tools scripts` clean: yes / no
+- `python -m pytest -q` output:
 - Manual verification steps (if any):
 
 ## Docs

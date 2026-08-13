@@ -33,23 +33,28 @@ source for forbidden patterns and will fail your PR if the invariants slip.
 
 ## Development setup
 
+Home Assistant 2026.7 (the minimum this integration supports) runs on
+Python 3.14. Use 3.14 locally so the same interpreter CI uses is the one
+you test with.
+
 ```bash
 git clone https://github.com/yeaxi/solar-analytics.git
 cd solar-analytics
-python3 -m pip install --user pytest ruff
+python3 -m pip install --user -r requirements-dev.txt
 ```
 
 Run the local checks:
 
 ```bash
-python3 -m pytest -q
-python3 -m compileall -q custom_components/solar_analytics tools scripts
 ruff check .
 ruff format --check .
+mypy
+python3 -m compileall -q custom_components/solar_analytics tools scripts
+python3 -m pytest -q
 ```
 
-All four should pass before you push. CI runs the same commands on Python
-3.11 and 3.12.
+All five should pass before you push. CI runs the same commands on Python
+3.14.
 
 ## Docs site
 
@@ -100,8 +105,8 @@ MkDocs pages include them. Architecture papers live under
 
 The pull request template covers this, but for quick reference:
 
-- Tests pass locally (`pytest`, `ruff check`, `ruff format --check`,
-  `compileall`).
+- Tests pass locally (`ruff check`, `ruff format --check`, `mypy`,
+  `compileall`, `pytest`).
 - `mkdocs build --strict` is clean if you touched docs.
 - `CHANGELOG.md` has an entry under `## [Unreleased]`.
 - `README.md` and `translations/*.json` updated if the change is

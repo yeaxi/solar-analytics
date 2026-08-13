@@ -113,7 +113,7 @@ def _number(state: Any) -> float | None:
         return None
     try:
         value = float(state)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return value if isfinite(value) else None
 
@@ -196,7 +196,7 @@ def compute_accuracy(
     for row in daily_rows:
         try:
             row_date = date.fromisoformat(str(row["local_date"]))
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             continue
         if start <= row_date < today_local and bool(row.get("valid_paired_day")):
             eligible.append(row)

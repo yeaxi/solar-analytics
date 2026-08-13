@@ -362,13 +362,13 @@ class ForecastSolarNativeAdapter:
                 "homeassistant.components.forecast_solar.energy",
             )
             helper = module.async_get_solar_forecast
-        except (ImportError, AttributeError):
+        except ImportError, AttributeError:
             return None
         if not callable(helper):
             return None
         try:
             signature = inspect.signature(helper)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         positional = [
             parameter
@@ -429,7 +429,7 @@ class ForecastSolarNativeAdapter:
                 )
             values["model_fingerprint_sha256"] = fingerprint
             return NativeModel("ok", values, fingerprint)
-        except (AttributeError, TypeError, ValueError):
+        except AttributeError, TypeError, ValueError:
             return NativeModel(
                 "unsupported_native_contract", {}, None, "native_entry_shape_invalid"
             )

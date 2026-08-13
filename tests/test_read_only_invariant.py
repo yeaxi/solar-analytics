@@ -10,12 +10,15 @@ run without importing Home Assistant so they cannot be silenced by a stub.
 
 from __future__ import annotations
 
+import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
 
-COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "solar_analytics"
+ROOT = Path(__file__).resolve().parents[1]
+COMPONENT = ROOT / "custom_components" / "solar_analytics"
 
 
 def _source_files() -> list[Path]:
@@ -76,8 +79,6 @@ def test_no_service_registration() -> None:
 def test_manifest_declares_dependencies_and_platinum_scale() -> None:
     """Sanity-check manifest.json for a couple of platinum-relevant claims."""
 
-    import json
-
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert "energy" in manifest["dependencies"]
     assert "forecast_solar" in manifest["dependencies"]
@@ -85,3 +86,11 @@ def test_manifest_declares_dependencies_and_platinum_scale() -> None:
     assert manifest["config_flow"] is True
     assert manifest["iot_class"] == "local_push"
     assert manifest["issue_tracker"].startswith("https://")
+
+
+def test_pyproject_version_matches_manifest() -> None:
+    """Keep pyproject.toml version in lockstep with the shipping manifest."""
+
+    manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["project"]["version"] == manifest["version"]
