@@ -50,8 +50,34 @@ One device with sensors that compare forecast and actual PV:
 - Analysis status and Forecast.Solar source status
 - Forecast accuracy after 14 valid paired days in 30 days
 - Daily comparison, future profile, and performance heatmap (disabled by default; enable them in the entity registry)
+- Imported actual history (disabled by default)
 - Last updated timestamp
 - Binary sensors: PV performance analysis valid, PV data-quality problem
+
+## Imported actual history
+
+Your PV sensors already recorded months of production before you installed
+Solar Analytics. On setup the integration reads that history back out of Home
+Assistant's long-term statistics for your actual PV **energy** sensor and
+publishes it on `sensor.solar_analytics_imported_actual_history`, which is
+disabled by default. Enable it in the entity registry to see one point per
+local day: date, kWh, the fraction of that day's hours that were actually
+recorded, and how many counter resets fell in it. Every row is labelled
+`reconstructed_from_recorder_statistics`.
+
+**This does not shorten the 14-day accuracy warm-up.** Accuracy compares a
+forecast against an actual for the same day, and Home Assistant never saved
+the historical hourly forecast anywhere, so there is nothing to compare your
+imported production against. Imported days are production history only. They
+never count toward a valid paired day, the rolling accuracy window, or the
+accuracy sensor. Accuracy still starts counting from the day you installed
+Solar Analytics.
+
+The import is read-only. It asks the Recorder for one sensor's hourly totals
+and writes nothing back to it. It refreshes when Home Assistant restarts or
+the integration reloads, at most once per day, and re-running it never
+double-counts. If the Recorder cannot be read the sensor says so
+(`recorder_unavailable`) and the rest of the integration carries on.
 
 ## If it is not working
 

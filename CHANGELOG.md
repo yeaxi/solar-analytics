@@ -7,6 +7,41 @@ All notable changes to Solar Analytics are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Imported historical actual production. On setup Solar Analytics reads the
+  configured actual PV **energy** sensor's long-term Recorder statistics
+  (hourly, never purged) through `statistics_during_period` on the Recorder's
+  own executor, derives each local day's kWh from the cumulative `sum` deltas,
+  and stores them in the new `v2_imported_actual_daily` table. Counter resets
+  are recorded rather than turned into negative days, and each day carries the
+  fraction of its hours that were observed, measured against the real 23, 24 or
+  25 hours of that local day.
+- New `sensor.solar_analytics_imported_actual_history` diagnostic entity,
+  disabled by default, carrying the bounded daily points, the import status,
+  and an explicit `reconstructed_from_recorder_statistics` provenance label.
+  Imported actuals are **not** wired into `valid_paired_day`, the rolling
+  accuracy window, or WAPE, and they do not shorten the 14-day accuracy
+  warm-up. Home Assistant never persists the timestamped forecast profile to
+  any state, so there is no recorded historical forecast to pair them against,
+  and splitting the one logged daily forecast scalar across hours is forbidden
+  by rule 4 of the recorder/forecast contract.
+- `scripts/verify_import_idempotency.py`, a deterministic rerunnable check that
+  the import converges: it feeds a synthetic year of hourly statistics through
+  the real reconstruction and the real store write three times and compares the
+  row count and total kWh.
+- Read-only scanner coverage for the write paths this feature invites:
+  `async_import_statistics`, `async_add_external_statistics`,
+  `async_adjust_statistics`, `hass.states.async_set`,
+  `hass.states.async_remove`, any reference to the live Recorder database file,
+  and an assertion that `sqlite3` stays imported only by `storage_v2.py`.
+- `recorder` in `manifest.json` `after_dependencies` (an ordering hint, not a
+  hard dependency: the entry still loads and reports `recorder_unavailable`).
+
+  Evidence status for the import is **PARTIAL**. Home Assistant is not
+  installed in CI, so the Recorder call is exercised against a recording stub.
+  What is verified is the reconstruction arithmetic, the storage idempotency,
+  and that exactly one statistic id is requested through the read API with no
+  mutating call. What is not verified is live Recorder behaviour on a real
+  installation. Do not claim this path production-ready without that evidence.
 - Pinned `requirements-dev.txt` and Dependabot updates for GitHub Actions
   and pip so CI tool versions stop floating.
 - Hermetic tests that `strings.json`, `translations/en.json`, and
@@ -23,6 +58,16 @@ All notable changes to Solar Analytics are documented here. The format follows
   "log-when-unavailable" pattern).
 - `CONTRIBUTING.md` documents the one-time GitHub-side owner setup (repository
   description, topics, and GitHub Pages source).
+
+### Removed
+- The six never-used `v2_backfill_*` tables and their eight store APIs. They
+  had no callers and no tests, could not express the
+  `observed_at_utc <= scheduled_at_utc` admissibility rule (no `scheduled_at_utc`
+  column), had a nullable column inside a PRIMARY KEY so their `ON CONFLICT`
+  never fired, and were never pruned. Storage schema version 5 drops all six on
+  first open; nothing read them, so nothing is lost.
+- `native.period_coverage_seconds` and the `native.parse_native_profile`
+  compatibility alias, both unreferenced.
 
 ### Changed
 - CI tests and lint now run on Python 3.14 (Home Assistant 2026.7 runtime)
