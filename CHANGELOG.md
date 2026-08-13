@@ -68,6 +68,18 @@ All notable changes to Solar Analytics are documented here. The format follows
   first open; nothing read them, so nothing is lost.
 - `native.period_coverage_seconds` and the `native.parse_native_profile`
   compatibility alias, both unreferenced.
+- `native._canonical_wh_hours`, also unreferenced. Its one rule, dropping a
+  zero point at exact midnight, belonged to no shipped path;
+  `normalize_native_wh_hours` keeps a non-midnight zero boundary and
+  quarantines the first cell instead.
+- `scripts/recorder_backfill_report.py` and its two `ruff.toml` per-file
+  exceptions. The script opened an archived Recorder database directly and
+  rebuilt daily rows from `states`, which duplicated the shipped importer. It
+  could only recover a daily forecast scalar, and rule 4 of the recorder and
+  forecast contract forbids feeding that into accuracy. The `scripts/`
+  inventory in `CONTRIBUTING.md` now names `verify_import_idempotency.py`, the
+  one script left. The 2.2.1 note about the report stays as written; it was
+  true for that release.
 
 ### Changed
 - CI tests and lint now run on Python 3.14 (Home Assistant 2026.7 runtime)
@@ -96,6 +108,12 @@ All notable changes to Solar Analytics are documented here. The format follows
   datetimes sharing a timezone, which always reported 24 hours. DST transition
   days are measured against their real 23 or 25 hours, and the three coverage
   ratios are clamped at 1.0.
+- The snapshot schedule section of
+  `docs/architecture/solar-analytics-recorder-and-forecast-contract.md` said
+  the morning snapshot targets the current local date. Both configured
+  snapshots are taken on D-1 and target D, which is what `daily_schedule()` and
+  `_capture_scheduled()` already do. Documentation and test only; no runtime
+  behaviour changed.
 
 ## [2.2.1] - 2026-08
 
