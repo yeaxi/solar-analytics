@@ -247,7 +247,7 @@ def analyze_snapshot(snapshot: Mapping[str, Any] | str | Path) -> dict[str, Any]
             result["snapshot_digest"] = stored_digest
             try:
                 expected_digest = _payload_digest(payload)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 expected_digest = None
             if stored_digest != expected_digest:
                 result["blockers"].append(

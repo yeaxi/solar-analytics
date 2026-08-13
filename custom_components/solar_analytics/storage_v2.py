@@ -609,7 +609,7 @@ class SolarAnalyticsV2Store:
                     str(previous["timestamp"]).replace("Z", "+00:00")
                 ).astimezone(UTC)
                 previous_power = float(previous["power_w"])
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 previous_ts = None
                 previous_power = None
             if previous_ts is not None and previous_power is not None and previous_ts < current_ts:

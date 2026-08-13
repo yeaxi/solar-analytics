@@ -8,8 +8,6 @@ entry (there is only ever one), and platform forwarding.
 
 from __future__ import annotations
 
-from typing import TypeAlias
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -18,9 +16,8 @@ from .migration import migrate_entry_data
 
 # Type alias for the ConfigEntry with its runtime_data payload. Modern HA
 # encourages this pattern (>= 2024.10) and it makes type-checkers happy
-# wherever we accept ``entry.runtime_data``. Uses ``TypeAlias`` instead of
-# the PEP 695 ``type`` statement so we stay Python 3.11 compatible.
-SolarAnalyticsConfigEntry: TypeAlias = ConfigEntry[SolarAnalyticsCoordinator]
+# wherever we accept ``entry.runtime_data``.
+type SolarAnalyticsConfigEntry = ConfigEntry[SolarAnalyticsCoordinator]
 
 PLATFORMS: tuple[str, ...] = ("sensor", "binary_sensor")
 

@@ -7,6 +7,11 @@ All notable changes to Solar Analytics are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Pinned `requirements-dev.txt` and Dependabot updates for GitHub Actions
+  and pip so CI tool versions stop floating.
+- Hermetic tests that `strings.json`, `translations/en.json`, and
+  `translations/uk.json` share the same key tree, and that
+  `pyproject.toml` version matches `manifest.json`.
 - GitHub Pages docs site (MkDocs Material) at https://yeaxi.github.io/solar-analytics/.
 - Home Assistant brand assets at `custom_components/solar_analytics/brand/`
   (`icon.png` 256x256 and `icon@2x.png` 512x512) so HACS renders a proper icon
@@ -20,6 +25,10 @@ All notable changes to Solar Analytics are documented here. The format follows
   description, topics, and GitHub Pages source).
 
 ### Changed
+- CI tests and lint now run on Python 3.14 (Home Assistant 2026.7 runtime)
+  with least-privilege permissions, concurrency cancellation, job
+  timeouts, and a split lint/pytest job. Docs Pages write permission is
+  limited to the deploy job.
 - README is now end-user only (install, setup, troubleshooting, bug reports).
   Contributor, agent, and architecture docs stay in `CONTRIBUTING.md`,
   `AGENTS.md`, and `docs/architecture/`.

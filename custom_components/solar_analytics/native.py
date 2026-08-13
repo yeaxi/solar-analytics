@@ -104,7 +104,7 @@ def _finite_non_negative(value: Any) -> float | None:
         return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if not isfinite(number) or number < 0:
         return None
@@ -122,7 +122,7 @@ def payload_sha256(payload: Any) -> str | None:
             ensure_ascii=True,
             allow_nan=False,
         ).encode("utf-8")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 

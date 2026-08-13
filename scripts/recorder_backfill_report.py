@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 def parse_number(value: Any) -> float | None:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return number if isfinite(number) else None
 
