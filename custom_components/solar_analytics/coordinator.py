@@ -25,13 +25,16 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     CONF_DAY_AHEAD_HOUR,
+    CONF_FORECAST_SOURCE_TYPE,
     CONF_MORNING_HOUR,
     CONF_TIME_ZONE,
     DEFAULT_DAY_AHEAD_HOUR,
     DEFAULT_MORNING_HOUR,
     DOMAIN,
+    FORECAST_SOURCE_ENTITY,
     NAME,
 )
+from .forecast_source import EntityForecastProvider
 from .imported_actuals import (
     IMPORT_PROVENANCE,
     ImportedActualHistory,
@@ -51,7 +54,12 @@ from .native import (
     clip_period_to_local_date,
     local_day_bounds_utc,
 )
-from .native_adapter import ForecastSolarNativeAdapter, NativeObservation, NativeRead
+from .native_adapter import (
+    EnergyForecastProvider,
+    ForecastProfileProvider,
+    NativeObservation,
+    NativeRead,
+)
 from .payload import build_imported_history_block, build_payload
 from .recorder_history import async_hourly_energy_statistics
 from .storage_v2 import METRIC_VERSION, NORMALIZATION_VERSION, SolarAnalyticsV2Store, StorageError
@@ -81,6 +89,18 @@ _ISSUE_INFO = {
     "unsupported_native_contract",
 }
 _MANAGED_ISSUE_IDS = _ISSUE_FIXABLE | _ISSUE_INFO
+
+
+def _build_forecast_provider(hass: HomeAssistant, entry: ConfigEntry) -> ForecastProfileProvider:
+    """Return the forecast provider the entry is configured for.
+
+    ``forecast_entity`` binds to a user-selected forecast entity; anything else
+    (the default) observes an Energy Dashboard solar-forecast integration.
+    """
+
+    if entry.data.get(CONF_FORECAST_SOURCE_TYPE) == FORECAST_SOURCE_ENTITY:
+        return EntityForecastProvider(hass, entry)
+    return EnergyForecastProvider(hass, entry)
 
 
 def _default_time_zone(hass: HomeAssistant) -> str:
@@ -142,6 +162,11 @@ def _state_mapping(state: Any, entity_id: str) -> dict[str, Any] | None:
 class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Own acquisition, normalization, persistence and explainable read-only metrics."""
 
+    # Default lineage kind. Overridden in ``__init__`` from the chosen provider;
+    # the class-level default keeps test shells (which bypass ``__init__``)
+    # working, and keeps existing Energy Dashboard lineages on ``native``.
+    source_kind: str = "native"
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
@@ -150,7 +175,8 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.day_ahead_hour = int(entry.data.get(CONF_DAY_AHEAD_HOUR, DEFAULT_DAY_AHEAD_HOUR))
         storage_path = Path(hass.config.path("solar_analytics", "solar_analytics.sqlite"))
         self.store = SolarAnalyticsV2Store(storage_path)
-        self.native_adapter = ForecastSolarNativeAdapter(hass, entry)
+        self.native_adapter: ForecastProfileProvider = _build_forecast_provider(hass, entry)
+        self.source_kind = self.native_adapter.source_kind
         self._unsubscribers: list[Any] = []
         self._morning_unsub: Any | None = None
         self._day_ahead_unsub: Any | None = None
@@ -335,7 +361,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not slots:
             return
         existing = await self.hass.async_add_executor_job(
-            functools.partial(self.store.list_snapshot_slots, source_kind="native")
+            functools.partial(self.store.list_snapshot_slots, source_kind=self.source_kind)
         )
         existing_keys = {
             (row.get("snapshot_type"), row.get("scheduled_at_utc")) for row in existing
@@ -415,7 +441,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             reason = "observation_not_available_at_scheduled_instant"
         slot_id, created = self.store.ensure_snapshot_slot(
             lineage_id=lineage_id,
-            source_kind="native",
+            source_kind=self.source_kind,
             snapshot_type=snapshot_type,
             scheduled_at_utc=scheduled_at_utc,
             target_local_date=target_local_date,
@@ -445,9 +471,15 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         native_entry_id = binding.native_entry_id or ""
         actual_energy_entity = binding.actual_energy_entity or ""
         actual_power_entity = binding.actual_power_entity or ""
+        # Source identity occupies the leading contract-key slot. For an Energy
+        # Dashboard binding this is ``native_entry_id`` exactly as before, so an
+        # existing Forecast.Solar lineage matches byte-for-byte and its accuracy
+        # warm-up is preserved. A forecast entity uses its entity id there, and
+        # its distinct fingerprint puts it on its own lineage.
+        source_id = binding.native_entry_id or binding.forecast_entity_id or ""
         contract_key = "|".join(
             (
-                native_entry_id,
+                source_id,
                 str(model.fingerprint),
                 NATIVE_CONTRACT_VERSION,
                 NATIVE_ADAPTER_VERSION,
@@ -458,8 +490,9 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.store.ensure_lineage(
             contract_key=contract_key,
             metadata={
-                "source_kind": "native",
+                "source_kind": self.source_kind,
                 "native_entry_id": native_entry_id,
+                "forecast_entity_id": binding.forecast_entity_id,
                 "model_fingerprint": model.fingerprint,
                 "model": values,
                 "actual_energy_entity": actual_energy_entity,
@@ -534,7 +567,7 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if observation is not None:
             lineage_id = self._ensure_lineage_sync(observation, now_utc)
             self.store.upsert_current_profile(
-                source_kind="native",
+                source_kind=self.source_kind,
                 lineage_id=lineage_id,
                 observed_at_utc=observation.observed_at_utc,
                 native_updated_at_utc=observation.native_updated_at_utc,

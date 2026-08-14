@@ -7,7 +7,9 @@
         "data": {
           "actual_power_entity": "Сенсор фактичної PV-потужності",
           "actual_energy_today_entity": "Сенсор фактичної PV-енергії (за сьогодні)",
-          "native_forecast_entry_id": "Config entry Forecast.Solar",
+          "forecast_source_type": "Тип джерела прогнозу",
+          "native_forecast_entry_id": "Config entry прогнозу",
+          "forecast_entity_id": "Сенсор прогнозу",
           "time_zone": "Часовий пояс аналітики",
           "morning_snapshot_hour": "Година ранкового snapshot (0-23)",
           "day_ahead_snapshot_hour": "Година day-ahead snapshot (0-23)"
@@ -15,7 +17,9 @@
         "data_description": {
           "actual_power_entity": "Сенсор миттєвої PV-потужності (device_class=power, state_class=measurement, W або kW). Залиште порожнім для автовизначення з Energy Dashboard.",
           "actual_energy_today_entity": "Лічильник PV-енергії за день (device_class=energy, state_class=total або total_increasing, kWh або Wh). Залиште порожнім для автовизначення.",
-          "native_forecast_entry_id": "Який Forecast.Solar config entry використовувати. Залиште порожнім для автовизначення з solar source в Energy Dashboard.",
+          "forecast_source_type": "Звідки береться профіль прогнозу. 'Інтеграція solar-forecast з Energy Dashboard' спостерігає за провайдером (Forecast.Solar, Solcast); 'Сенсор прогнозу' читає timestamped-профіль з обраного сенсора.",
+          "native_forecast_entry_id": "Який solar-forecast config entry з Energy Dashboard використовувати (Forecast.Solar, Solcast, ...). Залиште порожнім для автовизначення з solar source в Energy Dashboard. Використовується лише коли тип джерела — інтеграція Energy Dashboard.",
+          "forecast_entity_id": "Сенсор прогнозу для читання. Його атрибути мають містити timestamped Wh-per-period map (wh_hours, wh_period або watt_hours_period). Використовується лише коли тип джерела — 'Сенсор прогнозу'.",
           "time_zone": "Часовий пояс для меж snapshot-ів та щоденних результатів. За замовчуванням — часовий пояс Home Assistant.",
           "morning_snapshot_hour": "Локальна година, коли робиться morning-baseline snapshot напередодні цільового дня. За замовчуванням 06:00.",
           "day_ahead_snapshot_hour": "Локальна година day-ahead diagnostic snapshot. За замовчуванням 23:00."
@@ -23,11 +27,13 @@
       },
       "reconfigure": {
         "title": "Переналаштувати Solar Analytics",
-        "description": "Змініть actual-PV сенсори, Forecast.Solar entry, часовий пояс або години snapshot. Зміна сенсорів або Forecast.Solar entry стартує нову lineage; історична accuracy залишається за попередньою lineage.",
+        "description": "Змініть actual-PV сенсори, джерело прогнозу, часовий пояс або години snapshot. Зміна сенсорів або джерела прогнозу стартує нову lineage; історична accuracy залишається за попередньою lineage.",
         "data": {
           "actual_power_entity": "Сенсор фактичної PV-потужності",
           "actual_energy_today_entity": "Сенсор фактичної PV-енергії (за сьогодні)",
-          "native_forecast_entry_id": "Config entry Forecast.Solar",
+          "forecast_source_type": "Тип джерела прогнозу",
+          "native_forecast_entry_id": "Config entry прогнозу",
+          "forecast_entity_id": "Сенсор прогнозу",
           "time_zone": "Часовий пояс аналітики",
           "morning_snapshot_hour": "Година ранкового snapshot (0-23)",
           "day_ahead_snapshot_hour": "Година day-ahead snapshot (0-23)"
@@ -37,7 +43,9 @@
     "error": {
       "invalid_actual_power_entity": "Обраний сенсор не схожий на PV power (device_class=power, W або kW).",
       "invalid_actual_energy_entity": "Обраний сенсор не схожий на PV energy counter (device_class=energy, kWh або Wh).",
-      "invalid_native_forecast_entry": "Обраний config entry не належить Forecast.Solar.",
+      "invalid_native_forecast_entry": "Обраний config entry прогнозу не існує.",
+      "invalid_forecast_source_type": "Оберіть валідний тип джерела прогнозу.",
+      "invalid_forecast_entity": "Оберіть наявний сенсор прогнозу, коли тип джерела — 'Сенсор прогнозу'.",
       "invalid_snapshot_hour": "Година snapshot має бути цілим числом від 0 до 23.",
       "invalid_time_zone": "Обраний часовий пояс не є валідним IANA timezone."
     },
@@ -115,6 +123,7 @@
           "native_source_unavailable": "Native Forecast.Solar недоступний",
           "native_source_stale": "Native Forecast.Solar застарілий",
           "unsupported_native_contract": "Непідтримуваний контракт Forecast.Solar",
+          "unsupported_forecast_entity_contract": "Сенсор прогнозу без timestamped-профілю",
           "actual_source_stale": "Actual PV telemetry застаріле",
           "actual_source_unavailable": "Actual PV telemetry недоступне",
           "binding_unavailable": "Прив’язка Energy source недоступна",
@@ -131,6 +140,7 @@
           "ok": "OK",
           "uninitialized": "Не ініціалізовано",
           "unsupported_native_contract": "Непідтримуваний контракт",
+          "unsupported_forecast_entity_contract": "Немає timestamped-профілю",
           "native_source_unavailable": "Недоступний",
           "native_source_stale": "Застарілий",
           "binding_unavailable": "Прив’язка недоступна",

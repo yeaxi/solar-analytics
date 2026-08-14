@@ -274,6 +274,30 @@ def normalize_native_wh_hours(
     )
 
 
+_ENTITY_WH_MAP_ATTRIBUTES = ("wh_hours", "wh_period", "watt_hours_period")
+
+
+def extract_forecast_entity_wh_hours(attributes: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return a ``{"wh_hours": {...}}`` payload from a forecast entity's attributes.
+
+    Only entities that publish a timestamped Wh-per-period map are supported.
+    A scalar or power-only forecast entity is rejected (returns ``None``)
+    because the accuracy pipeline needs a timestamped energy profile and never
+    fabricates one from an instantaneous value. Recognized attribute names are
+    ``wh_hours``, ``wh_period`` and ``watt_hours_period``, each a mapping of ISO
+    period-end timestamp to Wh. The mapping is handed to
+    :func:`normalize_native_wh_hours`, which fails closed on malformed cells.
+    """
+
+    if not isinstance(attributes, Mapping):
+        return None
+    for name in _ENTITY_WH_MAP_ATTRIBUTES:
+        candidate = attributes.get(name)
+        if isinstance(candidate, Mapping) and candidate:
+            return {"wh_hours": {str(key): value for key, value in candidate.items()}}
+    return None
+
+
 def local_day_bounds_utc(local_date: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
     """Return the UTC instants bounding one local day.
 

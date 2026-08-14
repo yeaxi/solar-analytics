@@ -30,6 +30,10 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -39,12 +43,16 @@ from .const import (
     CONF_ACTUAL_ENERGY_TODAY,
     CONF_ACTUAL_POWER,
     CONF_DAY_AHEAD_HOUR,
+    CONF_FORECAST_ENTITY_ID,
+    CONF_FORECAST_SOURCE_TYPE,
     CONF_MORNING_HOUR,
     CONF_NATIVE_FORECAST_ENTRY_ID,
     CONF_TIME_ZONE,
     DEFAULT_DAY_AHEAD_HOUR,
     DEFAULT_MORNING_HOUR,
     DOMAIN,
+    FORECAST_SOURCE_ENERGY_ENTRY,
+    FORECAST_SOURCE_ENTITY,
     NAME,
 )
 
@@ -87,6 +95,20 @@ def _user_schema(hass: HomeAssistant, defaults: Mapping[str, Any] | None) -> vol
             EntitySelectorConfig(domain="sensor", device_class="energy")
         )
 
+    source_type_default = defaults.get(CONF_FORECAST_SOURCE_TYPE) or FORECAST_SOURCE_ENERGY_ENTRY
+    schema[vol.Optional(CONF_FORECAST_SOURCE_TYPE, default=source_type_default)] = SelectSelector(
+        SelectSelectorConfig(
+            mode=SelectSelectorMode.DROPDOWN,
+            options=[
+                SelectOptionDict(
+                    value=FORECAST_SOURCE_ENERGY_ENTRY,
+                    label="Energy Dashboard solar-forecast integration",
+                ),
+                SelectOptionDict(value=FORECAST_SOURCE_ENTITY, label="Forecast entity"),
+            ],
+        )
+    )
+
     if default_native_entry := defaults.get(CONF_NATIVE_FORECAST_ENTRY_ID):
         schema[vol.Optional(CONF_NATIVE_FORECAST_ENTRY_ID, default=default_native_entry)] = (
             ConfigEntrySelector(ConfigEntrySelectorConfig(integration="forecast_solar"))
@@ -94,6 +116,15 @@ def _user_schema(hass: HomeAssistant, defaults: Mapping[str, Any] | None) -> vol
     else:
         schema[vol.Optional(CONF_NATIVE_FORECAST_ENTRY_ID)] = ConfigEntrySelector(
             ConfigEntrySelectorConfig(integration="forecast_solar")
+        )
+
+    if default_forecast_entity := defaults.get(CONF_FORECAST_ENTITY_ID):
+        schema[vol.Optional(CONF_FORECAST_ENTITY_ID, default=default_forecast_entity)] = (
+            EntitySelector(EntitySelectorConfig(domain="sensor"))
+        )
+    else:
+        schema[vol.Optional(CONF_FORECAST_ENTITY_ID)] = EntitySelector(
+            EntitySelectorConfig(domain="sensor")
         )
 
     schema[vol.Optional(CONF_TIME_ZONE, default=default_tz)] = TextSelector(
@@ -159,12 +190,30 @@ def _validate_energy_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
 
 
 def _validate_native_entry(hass: HomeAssistant, entry_id: str | None) -> bool:
-    """Return ``True`` iff the config entry exists and belongs to Forecast.Solar."""
+    """Return ``True`` iff the forecast config entry exists.
+
+    Any integration that feeds the Energy Dashboard solar forecast is accepted
+    (Forecast.Solar, Solcast, ...); the runtime adapter resolves the provider
+    from the entry's own domain. Blank means auto-detect from the Energy
+    Dashboard.
+    """
 
     if not entry_id:
         return True
-    entry = hass.config_entries.async_get_entry(entry_id)
-    return entry is not None and getattr(entry, "domain", None) == "forecast_solar"
+    return hass.config_entries.async_get_entry(entry_id) is not None
+
+
+def _validate_forecast_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
+    """Return ``True`` iff the forecast entity exists.
+
+    Required when the source type is ``forecast_entity``; the attribute-schema
+    check happens fail-closed at runtime, since a freshly added entity may not
+    have published its forecast attributes yet.
+    """
+
+    if not entity_id:
+        return False
+    return hass.states.get(entity_id) is not None
 
 
 async def _validate_user_input(
@@ -193,6 +242,21 @@ async def _validate_user_input(
     elif native_entry:
         cleaned[CONF_NATIVE_FORECAST_ENTRY_ID] = native_entry
 
+    source_type = user_input.get(CONF_FORECAST_SOURCE_TYPE) or FORECAST_SOURCE_ENERGY_ENTRY
+    if source_type not in (FORECAST_SOURCE_ENERGY_ENTRY, FORECAST_SOURCE_ENTITY):
+        errors[CONF_FORECAST_SOURCE_TYPE] = "invalid_forecast_source_type"
+    else:
+        cleaned[CONF_FORECAST_SOURCE_TYPE] = source_type
+
+    forecast_entity = user_input.get(CONF_FORECAST_ENTITY_ID) or None
+    if source_type == FORECAST_SOURCE_ENTITY:
+        if not _validate_forecast_entity(hass, forecast_entity):
+            errors[CONF_FORECAST_ENTITY_ID] = "invalid_forecast_entity"
+        elif forecast_entity:
+            cleaned[CONF_FORECAST_ENTITY_ID] = forecast_entity
+    elif forecast_entity:
+        cleaned[CONF_FORECAST_ENTITY_ID] = forecast_entity
+
     tz = _validate_time_zone(user_input.get(CONF_TIME_ZONE))
     if tz is None:
         errors[CONF_TIME_ZONE] = "invalid_time_zone"
@@ -217,7 +281,7 @@ async def _validate_user_input(
 class SolarAnalyticsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Reusable, single-instance config flow for Solar Analytics."""
 
-    VERSION = 5
+    VERSION = 6
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Handle the initial user step."""

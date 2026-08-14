@@ -38,9 +38,17 @@ MANUFACTURER: Final[str] = "Solar Analytics"
 CONF_ACTUAL_POWER: Final = "actual_power_entity"
 CONF_ACTUAL_ENERGY_TODAY: Final = "actual_energy_today_entity"
 CONF_NATIVE_FORECAST_ENTRY_ID: Final = "native_forecast_entry_id"
+CONF_FORECAST_SOURCE_TYPE: Final = "forecast_source_type"
+CONF_FORECAST_ENTITY_ID: Final = "forecast_entity_id"
 CONF_TIME_ZONE: Final = "time_zone"
 CONF_MORNING_HOUR: Final = "morning_snapshot_hour"
 CONF_DAY_AHEAD_HOUR: Final = "day_ahead_snapshot_hour"
+
+# Which kind of forecast source the entry is bound to. ``energy_entry`` observes
+# an Energy Dashboard solar-forecast integration (Forecast.Solar, Solcast, ...);
+# ``forecast_entity`` reads a timestamped forecast profile from a chosen entity.
+FORECAST_SOURCE_ENERGY_ENTRY: Final[str] = "energy_entry"
+FORECAST_SOURCE_ENTITY: Final[str] = "forecast_entity"
 
 DEFAULT_MORNING_HOUR: Final[int] = 6
 DEFAULT_DAY_AHEAD_HOUR: Final[int] = 23

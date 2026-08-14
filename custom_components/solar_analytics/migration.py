@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from typing import Any
 
-CURRENT_ENTRY_VERSION = 5
+CURRENT_ENTRY_VERSION = 6
 DEFAULT_TIME_ZONE = "Europe/Kyiv"
 DEFAULT_MORNING_HOUR = 6
 DEFAULT_DAY_AHEAD_HOUR = 23
 SUPPORTED_ENTRY_FIELDS = frozenset(
     {
         "native_forecast_entry_id",
+        "forecast_source_type",
+        "forecast_entity_id",
         "time_zone",
         "actual_power_entity",
         "actual_energy_today_entity",
@@ -51,6 +53,10 @@ def migrate_entry_data(
     if version < 5:
         data.setdefault("morning_snapshot_hour", DEFAULT_MORNING_HOUR)
         data.setdefault("day_ahead_snapshot_hour", DEFAULT_DAY_AHEAD_HOUR)
+
+    # v6 adds the forecast source selector. Entries without it keep observing
+    # the Energy Dashboard forecast entry, so no default value is written; the
+    # absence of ``forecast_source_type`` means the Energy provider.
 
     version = max(version, CURRENT_ENTRY_VERSION)
 

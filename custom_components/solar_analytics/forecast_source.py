@@ -1,0 +1,196 @@
+"""Forecast-entity provider for Solar Analytics.
+
+The second :class:`~custom_components.solar_analytics.native_adapter.ForecastProfileProvider`
+implementation. Where the Energy Dashboard adapter observes an integration's
+solar-forecast coordinator, this provider reads a user-selected forecast
+*entity* and extracts a timestamped Wh-per-period profile from its state
+attributes.
+
+It is read-only: it only calls ``hass.states.get`` and never a service, a
+provider HTTP endpoint, or another integration's refresh. It fails closed. An
+entity that exposes no timestamped profile yields
+``unsupported_forecast_entity_contract`` rather than a fabricated scalar.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
+from .const import (
+    CONF_ACTUAL_ENERGY_TODAY,
+    CONF_ACTUAL_POWER,
+    CONF_FORECAST_ENTITY_ID,
+)
+from .native import (
+    build_generic_model_fingerprint,
+    extract_forecast_entity_wh_hours,
+    normalize_native_wh_hours,
+)
+from .native_adapter import (
+    MAX_OBSERVATION_AGE,
+    NativeBinding,
+    NativeModel,
+    NativeObservation,
+    NativeRead,
+    async_single_solar_source,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class EntityForecastProvider:
+    """Observe a forecast entity and normalize its timestamped profile."""
+
+    source_kind = "forecast_entity"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+        self.binding = NativeBinding("uninitialized")
+        self._sequence = 0
+        self._last_marker: tuple[str, str] | None = None
+        self._observation: NativeObservation | None = None
+
+    async def async_initialize(self) -> NativeBinding:
+        self.binding = await self.async_resolve_binding()
+        return self.binding
+
+    async def async_resolve_binding(self) -> NativeBinding:
+        """Resolve the forecast entity plus the canonical actual-PV sensors.
+
+        The forecast entity is always user-chosen (it is not part of the Energy
+        Dashboard). The actual PV sensors follow the same precedence as the
+        Energy adapter: user overrides first, else the Energy Dashboard's single
+        solar source.
+        """
+
+        data = self.entry.data or {}
+        forecast_entity_id = data.get(CONF_FORECAST_ENTITY_ID) or None
+        if not forecast_entity_id:
+            return NativeBinding("binding_unavailable", reason="forecast_entity_id_missing")
+
+        actual_power_entity = data.get(CONF_ACTUAL_POWER) or None
+        actual_energy_entity = data.get(CONF_ACTUAL_ENERGY_TODAY) or None
+        if actual_power_entity is None or actual_energy_entity is None:
+            source, error = await async_single_solar_source(self.hass)
+            if error is not None:
+                return NativeBinding(
+                    error.status,
+                    forecast_entity_id=forecast_entity_id,
+                    reason=error.reason,
+                )
+            if actual_power_entity is None:
+                actual_power_entity = source.get("stat_rate") if source else None
+            if actual_energy_entity is None:
+                actual_energy_entity = source.get("stat_energy_from") if source else None
+
+        if not actual_energy_entity or not isinstance(actual_energy_entity, str):
+            return NativeBinding(
+                "canonical_actual_mismatch",
+                forecast_entity_id=forecast_entity_id,
+                reason="actual_energy_entity_missing",
+            )
+        if not actual_power_entity or not isinstance(actual_power_entity, str):
+            return NativeBinding(
+                "canonical_actual_mismatch",
+                forecast_entity_id=forecast_entity_id,
+                reason="actual_power_entity_missing",
+            )
+        return NativeBinding(
+            "ok",
+            forecast_entity_id=forecast_entity_id,
+            actual_energy_entity=actual_energy_entity,
+            actual_power_entity=actual_power_entity,
+        )
+
+    async def async_capture(self) -> NativeRead:
+        self.binding = await self.async_resolve_binding()
+        if not self.binding.ready:
+            return NativeRead(self.binding.status, self.binding, reason=self.binding.reason)
+        entity_id = self.binding.forecast_entity_id or ""
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return NativeRead(
+                "native_source_unavailable", self.binding, reason="forecast_entity_missing"
+            )
+        state_value = getattr(state, "state", None)
+        if state_value in (None, "", "unknown", "unavailable"):
+            return NativeRead(
+                "native_source_unavailable", self.binding, reason="forecast_entity_unavailable"
+            )
+        attributes = dict(getattr(state, "attributes", {}) or {})
+        payload = extract_forecast_entity_wh_hours(attributes)
+        if payload is None:
+            return NativeRead(
+                "unsupported_forecast_entity_contract",
+                self.binding,
+                reason="no_timestamped_profile",
+            )
+        profile = normalize_native_wh_hours(payload)
+        if profile.status != "complete" or profile.payload_sha256 is None:
+            return NativeRead(
+                "unsupported_forecast_entity_contract",
+                self.binding,
+                reason=f"profile_validation_failed:invalid_count={profile.invalid_count}",
+            )
+        updated_at = self._entity_updated_at(state)
+        if updated_at is None:
+            return NativeRead(
+                "native_source_unavailable", self.binding, reason="forecast_entity_no_timestamp"
+            )
+        now = datetime.now(UTC)
+        age = (now - updated_at).total_seconds()
+        if age < -300 or age > MAX_OBSERVATION_AGE.total_seconds():
+            return NativeRead(
+                "native_source_stale",
+                self.binding,
+                reason=f"forecast_entity_age_seconds:{age:.1f}",
+            )
+        model = self._model(attributes)
+        if model.status != "ok":
+            return NativeRead(model.status, self.binding, model=model, reason=model.reason)
+        marker = (updated_at.isoformat(), profile.payload_sha256)
+        if marker == self._last_marker and self._observation is not None:
+            return NativeRead("ok", self.binding, model=model, observation=self._observation)
+        self._sequence += 1
+        observation = NativeObservation(
+            profile=profile,
+            observed_at_utc=now,
+            native_updated_at_utc=updated_at,
+            observation_sequence=self._sequence,
+            payload_sha256=profile.payload_sha256,
+            model=model,
+        )
+        self._last_marker = marker
+        self._observation = observation
+        return NativeRead("ok", self.binding, model=model, observation=observation)
+
+    def _model(self, attributes: dict[str, Any]) -> NativeModel:
+        values: dict[str, Any] = {
+            "status": "ok",
+            "forecast_entity_id": self.binding.forecast_entity_id,
+            "unit_of_measurement": attributes.get("unit_of_measurement"),
+        }
+        fingerprint = build_generic_model_fingerprint(values)
+        if fingerprint is None:
+            return NativeModel(
+                "unsupported_forecast_entity_contract", values, None, "model_invalid"
+            )
+        values["model_fingerprint_sha256"] = fingerprint
+        return NativeModel("ok", values, fingerprint)
+
+    @staticmethod
+    def _entity_updated_at(state: Any) -> datetime | None:
+        for attr in ("last_updated", "last_changed"):
+            value = getattr(state, attr, None)
+            if isinstance(value, datetime) and value.tzinfo is not None:
+                return value.astimezone(UTC)
+        return None
+
+    async def async_unload(self) -> None:
+        return None

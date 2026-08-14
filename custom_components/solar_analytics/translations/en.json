@@ -7,7 +7,9 @@
         "data": {
           "actual_power_entity": "Actual PV power sensor",
           "actual_energy_today_entity": "Actual PV energy-today sensor",
-          "native_forecast_entry_id": "Forecast.Solar config entry",
+          "forecast_source_type": "Forecast source type",
+          "native_forecast_entry_id": "Forecast config entry",
+          "forecast_entity_id": "Forecast entity",
           "time_zone": "Analytics timezone",
           "morning_snapshot_hour": "Morning snapshot hour (0-23)",
           "day_ahead_snapshot_hour": "Day-ahead snapshot hour (0-23)"
@@ -15,7 +17,9 @@
         "data_description": {
           "actual_power_entity": "The instantaneous PV power sensor (device_class=power, state_class=measurement, unit W or kW). Leave blank to auto-detect from the Energy Dashboard.",
           "actual_energy_today_entity": "The daily PV energy counter (device_class=energy, state_class=total or total_increasing, unit kWh or Wh). Leave blank to auto-detect.",
-          "native_forecast_entry_id": "Which Forecast.Solar config entry to bind to. Leave blank to auto-detect from the Energy Dashboard's solar source.",
+          "forecast_source_type": "Where the forecast profile comes from. 'Energy Dashboard solar-forecast integration' observes a provider such as Forecast.Solar or Solcast; 'Forecast entity' reads a timestamped profile from a chosen entity.",
+          "native_forecast_entry_id": "Which Energy Dashboard solar-forecast config entry to bind to (Forecast.Solar, Solcast, ...). Leave blank to auto-detect from the Energy Dashboard's solar source. Used only when the source type is the Energy Dashboard integration.",
+          "forecast_entity_id": "The forecast entity to read. Its attributes must expose a timestamped Wh-per-period map (wh_hours, wh_period, or watt_hours_period). Used only when the source type is 'Forecast entity'.",
           "time_zone": "The timezone used for the morning and day-ahead snapshot boundaries and for daily accuracy roll-ups. Defaults to Home Assistant's timezone.",
           "morning_snapshot_hour": "Local hour at which the morning-baseline snapshot is taken the day before the target day. Defaults to 06:00.",
           "day_ahead_snapshot_hour": "Local hour at which the day-ahead diagnostic snapshot is taken. Defaults to 23:00."
@@ -23,11 +27,13 @@
       },
       "reconfigure": {
         "title": "Reconfigure Solar Analytics",
-        "description": "Change which actual-PV sensors, Forecast.Solar entry, timezone, or snapshot hours Solar Analytics uses. Changing the sensors or the Forecast.Solar entry starts a new lineage; historical accuracy stays associated with the previous lineage.",
+        "description": "Change which actual-PV sensors, forecast source, timezone, or snapshot hours Solar Analytics uses. Changing the sensors or the forecast source starts a new lineage; historical accuracy stays associated with the previous lineage.",
         "data": {
           "actual_power_entity": "Actual PV power sensor",
           "actual_energy_today_entity": "Actual PV energy-today sensor",
-          "native_forecast_entry_id": "Forecast.Solar config entry",
+          "forecast_source_type": "Forecast source type",
+          "native_forecast_entry_id": "Forecast config entry",
+          "forecast_entity_id": "Forecast entity",
           "time_zone": "Analytics timezone",
           "morning_snapshot_hour": "Morning snapshot hour (0-23)",
           "day_ahead_snapshot_hour": "Day-ahead snapshot hour (0-23)"
@@ -37,7 +43,9 @@
     "error": {
       "invalid_actual_power_entity": "The selected sensor does not look like a PV power sensor (device_class=power, unit W or kW).",
       "invalid_actual_energy_entity": "The selected sensor does not look like a PV energy counter (device_class=energy, unit kWh or Wh).",
-      "invalid_native_forecast_entry": "The selected config entry is not a Forecast.Solar entry.",
+      "invalid_native_forecast_entry": "The selected forecast config entry does not exist.",
+      "invalid_forecast_source_type": "Choose a valid forecast source type.",
+      "invalid_forecast_entity": "Select a forecast entity that exists when the forecast source type is 'Forecast entity'.",
       "invalid_snapshot_hour": "Snapshot hour must be an integer between 0 and 23.",
       "invalid_time_zone": "The selected timezone is not a valid IANA timezone."
     },
@@ -115,6 +123,7 @@
           "native_source_unavailable": "Native Forecast.Solar unavailable",
           "native_source_stale": "Native Forecast.Solar stale",
           "unsupported_native_contract": "Unsupported Forecast.Solar contract",
+          "unsupported_forecast_entity_contract": "Forecast entity has no timestamped profile",
           "actual_source_stale": "Actual PV telemetry stale",
           "actual_source_unavailable": "Actual PV telemetry unavailable",
           "binding_unavailable": "Energy source binding unavailable",
@@ -131,6 +140,7 @@
           "ok": "OK",
           "uninitialized": "Uninitialized",
           "unsupported_native_contract": "Unsupported contract",
+          "unsupported_forecast_entity_contract": "No timestamped profile",
           "native_source_unavailable": "Unavailable",
           "native_source_stale": "Stale",
           "binding_unavailable": "Binding unavailable",

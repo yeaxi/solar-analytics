@@ -45,6 +45,9 @@ ignore = [
 # The native adapter's binding resolver has many small fail-closed branches
 # and each one is its own explicit early return; splitting it hurts clarity.
 "custom_components/solar_analytics/native_adapter.py" = ["PLR0911"]
+# The forecast-entity provider's capture has the same shape: one explicit
+# fail-closed early return per rejected state, which reads better flat.
+"custom_components/solar_analytics/forecast_source.py" = ["PLR0911"]
 # The coordinator imports its Home Assistant helpers at module top and its
 # helpers use short guards.
 "custom_components/solar_analytics/coordinator.py" = ["PLR0911"]

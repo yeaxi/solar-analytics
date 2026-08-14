@@ -63,17 +63,23 @@ def _version_tuple(raw: str) -> tuple[int, ...]:
 
 @dataclass(frozen=True)
 class NativeBinding:
-    """Exact Energy Dashboard binding and its validation result."""
+    """Resolved forecast-source binding and its validation result.
+
+    ``native_entry_id`` identifies an Energy Dashboard forecast config entry;
+    ``forecast_entity_id`` identifies a forecast entity. Exactly one is set for
+    a ready binding, depending on the configured source type.
+    """
 
     status: str
     native_entry_id: str | None = None
     actual_energy_entity: str | None = None
     actual_power_entity: str | None = None
     reason: str | None = None
+    forecast_entity_id: str | None = None
 
     @property
     def ready(self) -> bool:
-        return self.status == "ok" and bool(self.native_entry_id)
+        return self.status == "ok" and bool(self.native_entry_id or self.forecast_entity_id)
 
 
 @dataclass(frozen=True)
@@ -640,3 +646,40 @@ class ForecastSolarNativeAdapter:
 # ``ForecastProfileProvider`` implementation; the entity adapter in
 # ``forecast_source`` is the other. New code references ``EnergyForecastProvider``.
 EnergyForecastProvider = ForecastSolarNativeAdapter
+
+
+async def async_single_solar_source(
+    hass: HomeAssistant,
+) -> tuple[Mapping[str, Any] | None, NativeBinding | None]:
+    """Return the Energy Dashboard's single solar source, or an error binding.
+
+    Shared by the forecast-entity provider to auto-detect the actual PV
+    sensors when the user leaves them blank. Read-only: it imports the energy
+    data module off the event loop and inspects preferences only.
+    """
+
+    try:
+        energy_data = await hass.async_add_executor_job(
+            importlib.import_module,
+            "homeassistant.components.energy.data",
+        )
+        manager = await energy_data.async_get_manager(hass)
+    except Exception as err:
+        return None, NativeBinding(
+            "unsupported_native_contract",
+            reason=f"energy_manager_unavailable:{type(err).__name__}",
+        )
+    preferences = getattr(manager, "data", None)
+    sources = preferences.get("energy_sources") if isinstance(preferences, Mapping) else None
+    if not isinstance(sources, list):
+        return None, NativeBinding("binding_unavailable", reason="energy_sources_missing")
+    solar_sources = [
+        source
+        for source in sources
+        if isinstance(source, Mapping) and source.get("type") == "solar"
+    ]
+    if len(solar_sources) != 1:
+        return None, NativeBinding(
+            "binding_ambiguous", reason=f"solar_source_count:{len(solar_sources)}"
+        )
+    return solar_sources[0], None
