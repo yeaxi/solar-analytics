@@ -10,7 +10,10 @@ from __future__ import annotations
 from typing import Any
 
 CURRENT_ENTRY_VERSION = 6
-DEFAULT_TIME_ZONE = "Europe/Kyiv"
+# Neutral fallback for pre-v2 entries with no stored timezone. The runtime
+# passes Home Assistant's configured timezone in; this constant is only the
+# last resort when even that is unset.
+DEFAULT_TIME_ZONE = "UTC"
 DEFAULT_MORNING_HOUR = 6
 DEFAULT_DAY_AHEAD_HOUR = 23
 SUPPORTED_ENTRY_FIELDS = frozenset(
@@ -28,7 +31,10 @@ SUPPORTED_ENTRY_FIELDS = frozenset(
 
 
 def migrate_entry_data(
-    entry_version: int, entry_data: dict[str, Any]
+    entry_version: int,
+    entry_data: dict[str, Any],
+    *,
+    default_time_zone: str = DEFAULT_TIME_ZONE,
 ) -> tuple[int, dict[str, Any]]:
     """Return the migrated (version, data) for a config entry.
 
@@ -36,9 +42,10 @@ def migrate_entry_data(
 
     - Fields not in ``SUPPORTED_ENTRY_FIELDS`` are dropped (removes stale
       keys from earlier schemas without leaking them into runtime).
-    - Older entries without ``time_zone`` receive the historical Kyiv
-      default; new installs write ``hass.config.time_zone`` via the
-      config-flow, so this default only affects pre-v2 migrations.
+    - Older entries without ``time_zone`` receive ``default_time_zone`` (the
+      caller passes Home Assistant's configured timezone; ``UTC`` otherwise).
+      New installs write ``hass.config.time_zone`` via the config flow, so
+      this only affects pre-v2 migrations.
     - Older entries without the snapshot-hour fields receive the historical
       06:00 / 23:00 defaults.
     - The returned version is bumped to :data:`CURRENT_ENTRY_VERSION`.
@@ -48,7 +55,7 @@ def migrate_entry_data(
     data = {key: value for key, value in dict(entry_data).items() if key in SUPPORTED_ENTRY_FIELDS}
 
     if version < 2:
-        data.setdefault("time_zone", DEFAULT_TIME_ZONE)
+        data.setdefault("time_zone", default_time_zone)
 
     if version < 5:
         data.setdefault("morning_snapshot_hour", DEFAULT_MORNING_HOUR)

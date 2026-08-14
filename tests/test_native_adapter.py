@@ -54,7 +54,7 @@ def _install_fake_ha(helper, *, root_version: bool = True):
 
 class FakePlane:
     subentry_id = "plane-1"
-    data = {"declination": 33, "azimuth": 138, "modules_power": 5360}
+    data = {"declination": 30, "azimuth": 180, "modules_power": 5000}
 
 
 class FakeNativeRuntime:
@@ -89,8 +89,8 @@ class PlainCoordinatorRuntime(FakeNativeRuntime):
 
 class FakeNativeEntry:
     domain = "forecast_solar"
-    data = {"latitude": 50.47, "longitude": 30.43}
-    options = {"inverter_size": 5190, "damping_morning": 0, "damping_evening": 0}
+    data = {"latitude": 52.0, "longitude": 13.0}
+    options = {"inverter_size": 5000, "damping_morning": 0, "damping_evening": 0}
 
     def __init__(self) -> None:
         self.runtime_data = FakeNativeRuntime()
@@ -170,8 +170,8 @@ def test_native_adapter_binds_energy_dashboard_and_deduplicates_update() -> None
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]
@@ -220,8 +220,8 @@ def test_native_adapter_listener_cleanup_is_idempotent() -> None:
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]
@@ -272,8 +272,8 @@ def test_native_adapter_accepts_plain_coordinator_after_listener_observation() -
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]
@@ -317,8 +317,8 @@ def test_native_adapter_retries_listener_after_native_entry_finishes_setup() -> 
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]
@@ -363,8 +363,8 @@ def test_native_adapter_rebinds_listener_when_native_runtime_is_replaced() -> No
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]
@@ -412,8 +412,8 @@ def test_native_adapter_ignores_callback_from_replaced_runtime() -> None:
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]
@@ -458,8 +458,8 @@ def test_native_adapter_does_not_admit_failed_listener_callback() -> None:
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]
@@ -516,8 +516,8 @@ def test_native_adapter_reports_redacted_profile_validation_reason() -> None:
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]
@@ -562,8 +562,8 @@ def test_native_adapter_imports_helper_off_event_loop() -> None:
             "energy_sources": [
                 {
                     "type": "solar",
-                    "stat_energy_from": "sensor.garage_cerbo_gx_pv_energy",
-                    "stat_rate": "sensor.garage_cerbo_gx_pv_power",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
                     "config_entry_solar_forecast": ["native-1"],
                 }
             ]

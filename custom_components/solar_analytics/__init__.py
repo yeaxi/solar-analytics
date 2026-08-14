@@ -31,7 +31,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate entry data forward to the current schema version."""
 
-    version, data = migrate_entry_data(entry.version, dict(entry.data))
+    default_time_zone = str(getattr(hass.config, "time_zone", None) or "UTC")
+    version, data = migrate_entry_data(
+        entry.version, dict(entry.data), default_time_zone=default_time_zone
+    )
     if version != entry.version or data != dict(entry.data):
         hass.config_entries.async_update_entry(entry, data=data, version=version)
     return True

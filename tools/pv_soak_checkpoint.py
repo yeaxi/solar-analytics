@@ -21,7 +21,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-BASELINE_UTC = "2026-08-03T19:28:33Z"
 SCHEMA_VERSION = 2
 
 # The fixed status entities Solar Analytics always publishes. Any Solar
@@ -46,7 +45,7 @@ REQUIRED_TABLES = frozenset(
         "v2_runtime_state.last_actual_sample",
     }
 )
-REQUIRED_LOGS = frozenset({"solar_analytics", "victron_mqtt", "forecast_solar"})
+REQUIRED_LOGS = frozenset({"solar_analytics", "forecast_solar"})
 _TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
@@ -100,9 +99,12 @@ def validate_collector_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     checkpoint_id = root.get("checkpoint_id")
     if not isinstance(checkpoint_id, str) or not checkpoint_id or len(checkpoint_id) > 128:
         raise CheckpointValidationError("checkpoint_id must be a non-empty short string")
-    _timestamp(root.get("collected_at_utc"), "collected_at_utc")
-    if root.get("baseline_utc") != BASELINE_UTC:
-        raise CheckpointValidationError(f"baseline_utc must equal {BASELINE_UTC}")
+    collected_at = _timestamp(root.get("collected_at_utc"), "collected_at_utc")
+    baseline = _timestamp(root.get("baseline_utc"), "baseline_utc")
+    collected_dt = datetime.fromisoformat(collected_at[:-1] + "+00:00")
+    baseline_dt = datetime.fromisoformat(baseline[:-1] + "+00:00")
+    if baseline_dt > collected_dt:
+        raise CheckpointValidationError("baseline_utc must not be after collected_at_utc")
 
     collection = _mapping(root.get("collection"), "collection")
     if collection.get("method") != "read_only_ssh":
@@ -298,7 +300,7 @@ def _template() -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "checkpoint_id": "replace-me",
         "collected_at_utc": "YYYY-MM-DDTHH:MM:SSZ",
-        "baseline_utc": BASELINE_UTC,
+        "baseline_utc": "YYYY-MM-DDTHH:MM:SSZ",
         "collection": {
             "method": "read_only_ssh",
             "physical_calls": 0,
