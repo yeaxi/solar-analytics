@@ -58,6 +58,11 @@ All notable changes to Solar Analytics are documented here. The format follows
   "log-when-unavailable" pattern).
 - `CONTRIBUTING.md` documents the one-time GitHub-side owner setup (repository
   description, topics, and GitHub Pages source).
+- Tag-triggered GitHub Release workflow. `scripts/release.py` checks that the
+  tag, `manifest.json`, `pyproject.toml`, and CHANGELOG heading agree, extracts
+  the changelog body as release notes, and attaches `solar_analytics.zip` for
+  manual installs. HACS still installs from the tagged tree (`zip_release`
+  stays false).
 
 ### Removed
 - The six never-used `v2_backfill_*` tables and their eight store APIs. They

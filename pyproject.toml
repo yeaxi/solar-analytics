@@ -31,6 +31,7 @@ files = [
     "custom_components/solar_analytics/v2_metrics.py",
     "custom_components/solar_analytics/storage_v2.py",
     "tools/pv_soak_checkpoint.py",
+    "scripts/release.py",
 ]
 
 [[tool.mypy.overrides]]

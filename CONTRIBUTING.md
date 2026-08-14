@@ -80,12 +80,15 @@ MkDocs pages include them. Architecture papers live under
 - `tests/` — deterministic hermetic tests. No `pytest-homeassistant-custom-component`
   dependency; the HA stack is stubbed at import time when needed.
 - `tools/` — local read-only analyzers (soak checkpoint validator).
-- `scripts/` — local read-only checks. `verify_import_idempotency.py` feeds a
+- `scripts/` — local checks. `verify_import_idempotency.py` feeds a
   synthetic year of hourly statistics through the real import three times and
   fails if the row count or the total kWh moves.
   `benchmark_accumulator_window.py` reads one one-hour window out of a year of
   accumulator buckets three ways, prints rows fetched and query plans, and
   fails if the arms disagree.
+  `release.py` is the release helper: `check` and `notes` are read-only;
+  `prepare` is the one command that rewrites `CHANGELOG.md` and the two
+  version files.
 - `docs/` — MkDocs source. Architecture papers are in `docs/architecture/`.
 
 ## Coding conventions
@@ -118,6 +121,41 @@ The pull request template covers this, but for quick reference:
   user-facing.
 - Read-only and PV-only invariants confirmed in the PR description.
 
+## Releasing
+
+HACS reads the remote version from a **published GitHub Release**, not from
+`manifest.json` and not from a tag alone.
+
+1. During ordinary PRs, add notes under `## [Unreleased]` in `CHANGELOG.md`
+   (already required by the checklist above).
+2. When it is time to ship, from a clean checkout of `main`:
+
+   ```bash
+   python scripts/release.py prepare X.Y.Z
+   ```
+
+   That moves the Unreleased entries under `## [X.Y.Z] - YYYY-MM-DD`, leaves
+   an empty Unreleased section, and sets the version in `manifest.json` and
+   `pyproject.toml`. `const.VERSION` follows the manifest at import time.
+3. Open a PR with that version bump. Do not tag yet.
+4. After it merges, from the merge commit on `main`:
+
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+5. The Release workflow runs Tests, hassfest/HACS validation, and
+   `python scripts/release.py check --tag vX.Y.Z`. If those pass it publishes
+   the GitHub Release with the changelog section as notes and attaches
+   `solar_analytics.zip` (the `solar_analytics/` folder at the zip root, for
+   unzipping into `config/custom_components/`). HACS does not use that zip;
+   `hacs.json` keeps `"zip_release": false`.
+
+Do not stamp `manifest.json` from the tag after the fact. If the tag and
+the committed version disagree, or if Unreleased still has entries, the
+workflow fails.
+
 ## Reporting bugs
 
 Open a bug report using the template under
@@ -127,9 +165,8 @@ three-dot menu → Download diagnostics** instead of pasting raw logs.
 
 ## Repository-owner one-time setup
 
-Two HACS validators can only be satisfied by settings on the GitHub
-repository itself, not by files in the tree. The owner needs to set them
-once:
+These cannot be satisfied by files in the tree. The owner needs to set
+them once:
 
 - **Description.** GitHub → repository → About → set to something like
   "Read-only, reusable Solar Analytics custom integration for Home
@@ -140,6 +177,16 @@ once:
 - **GitHub Pages.** Settings → Pages → Build and deployment → Source:
   GitHub Actions. Needed once so the docs workflow can publish
   <https://yeaxi.github.io/solar-analytics/>.
+- **Delete the placeholder `v0.1.0` GitHub Release and tag.** HACS uses the
+  GitHub Release tag as the remote version. `v0.1.0` was published against
+  current `main` while `manifest.json` still reads `2.2.1`, so HACS currently
+  advertises 0.1.0. After a correctly versioned `vX.Y.Z` release exists
+  (tag matching the manifest), delete the placeholder:
+
+  ```bash
+  gh release delete v0.1.0 --yes
+  git push origin :refs/tags/v0.1.0
+  ```
 
 Equivalent commands if you prefer the CLI:
 

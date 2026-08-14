@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/tests.yml
+
+  validate:
+    name: Validate
+    uses: ./.github/workflows/validate.yml
+
+  verify:
+    name: Verify version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Check tag, manifest, pyproject, and changelog
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/release.py check --tag "${{ github.ref_name }}"
+
+      - name: Extract release notes
+        run: python scripts/release.py notes --tag "${{ github.ref_name }}" > release-notes.md
+
+      - name: Upload release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  publish:
+    name: Publish GitHub Release
+    needs: [tests, validate, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+
+      - name: Build integration zip
+        run: |
+          cd custom_components
+          zip -r "${GITHUB_WORKSPACE}/solar_analytics.zip" solar_analytics \
+            -x '*/__pycache__/*' -x '*.pyc'
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" "${GITHUB_WORKSPACE}/solar_analytics.zip" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            --repo "$GITHUB_REPOSITORY"
