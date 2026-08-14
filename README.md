@@ -22,6 +22,9 @@ It does not control devices, send notifications, or call services.
 ### Manual copy
 
 1. Copy `custom_components/solar_analytics/` into `config/custom_components/`.
+   Alternatively, download `solar_analytics.zip` from the
+   [GitHub Releases](https://github.com/yeaxi/solar-analytics/releases) page
+   and unzip it into `config/custom_components/`.
 2. Restart Home Assistant.
 
 ## Set up
