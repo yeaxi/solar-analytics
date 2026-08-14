@@ -8,15 +8,19 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from datetime import date
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-_SPEC = importlib.util.spec_from_file_location("solar_analytics_release", ROOT / "scripts" / "release.py")
+_SPEC = importlib.util.spec_from_file_location(
+    "solar_analytics_release", ROOT / "scripts" / "release.py"
+)
 assert _SPEC is not None and _SPEC.loader is not None
 release = importlib.util.module_from_spec(_SPEC)
+sys.modules["solar_analytics_release"] = release
 _SPEC.loader.exec_module(release)
 
 MINIMAL_CHANGELOG = """# Changelog

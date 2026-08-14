@@ -34,7 +34,7 @@ CHANGELOG_NAME = "CHANGELOG.md"
 PYPROJECT_NAME = "pyproject.toml"
 UNRELEASED = "Unreleased"
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
-HEADING = re.compile(r"^## \[([^\]]+)\](?: - (\S+))?\s*$", re.MULTILINE)
+HEADING = re.compile(r"^## \[([^\]]+)\](?: - (\S+))?[ \t]*$", re.MULTILINE)
 PYPROJECT_VERSION_LINE = re.compile(r'^version\s*=\s*"[^"]+"', re.MULTILINE)
 LIST_ITEM = re.compile(r"^-\s+\S")
 
@@ -238,15 +238,25 @@ def prepare_release(root: Path, version: str, *, today: date | None = None) -> N
 
 def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--root", type=Path, default=ROOT, help="repository root (default: this repo)")
-    parser = argparse.ArgumentParser(description="Check, extract, or prepare a Solar Analytics release.")
+    common.add_argument(
+        "--root", type=Path, default=ROOT, help="repository root (default: this repo)"
+    )
+    parser = argparse.ArgumentParser(
+        description="Check, extract, or prepare a Solar Analytics release."
+    )
     sub = parser.add_subparsers(dest="command")
     check = sub.add_parser("check", parents=[common], help="verify version files and changelog")
     check.add_argument("--tag", default=os.environ.get("RELEASE_TAG"), help="GitHub tag to compare")
     notes = sub.add_parser("notes", parents=[common], help="print changelog notes for a version")
-    notes.add_argument("--tag", default=os.environ.get("RELEASE_TAG"), help="GitHub tag whose notes to print")
-    notes.add_argument("--version", default=None, help="explicit version; overrides --tag and the manifest")
-    prepare = sub.add_parser("prepare", parents=[common], help="move Unreleased notes and bump version files")
+    notes.add_argument(
+        "--tag", default=os.environ.get("RELEASE_TAG"), help="GitHub tag whose notes to print"
+    )
+    notes.add_argument(
+        "--version", default=None, help="explicit version; overrides --tag and the manifest"
+    )
+    prepare = sub.add_parser(
+        "prepare", parents=[common], help="move Unreleased notes and bump version files"
+    )
     prepare.add_argument("version", help="MAJOR.MINOR.PATCH to ship")
     return parser
 
