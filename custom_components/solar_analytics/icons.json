@@ -4,7 +4,6 @@
       "actual_pv_power": {"default": "mdi:solar-power"},
       "native_modules_power": {"default": "mdi:solar-panel-large"},
       "forecast_solar_power": {"default": "mdi:weather-sunny"},
-      "vrm_forecast_power": {"default": "mdi:solar-power-variant"},
       "analysis_status": {
         "default": "mdi:chart-bell-curve",
         "state": {

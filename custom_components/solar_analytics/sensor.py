@@ -180,16 +180,6 @@ SENSOR_DESCRIPTIONS: tuple[SolarAnalyticsSensorEntityDescription, ...] = (
         value_fn=lambda data: data.get("forecast_solar_power_w"),
     ),
     SolarAnalyticsSensorEntityDescription(
-        key="vrm_forecast_power",
-        translation_key="vrm_forecast_power",
-        icon="mdi:solar-power-variant",
-        native_unit_of_measurement=UnitOfPower.WATT,
-        device_class=SensorDeviceClass.POWER,
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_registry_enabled_default=False,
-        value_fn=lambda data: data.get("vrm_forecast_power_w"),
-    ),
-    SolarAnalyticsSensorEntityDescription(
         key="analysis_status",
         translation_key="analysis_status",
         icon="mdi:chart-bell-curve",
@@ -365,7 +355,7 @@ class SolarAnalyticsSensor(CoordinatorEntity[SolarAnalyticsCoordinator], SensorE
             identifiers={(DOMAIN, "solar_analytics")},
             name=NAME,
             manufacturer=MANUFACTURER,
-            model="Native Forecast.Solar period analytics",
+            model="Forecast vs actual PV analytics",
             sw_version=VERSION,
         )
 

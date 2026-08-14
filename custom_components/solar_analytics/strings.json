@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Solar Analytics",
-        "description": "Solar Analytics observes the Forecast.Solar profile used by the Home Assistant Energy Dashboard and compares it with your canonical PV power/energy sensors. The integration is read-only: it never controls devices, sends notifications, or triggers services.\n\nBy default, actual-PV entities and the Forecast.Solar config entry are auto-detected from the Energy Dashboard configuration. Override any field below if you want to bind to different sensors or a different Forecast.Solar entry.",
+        "description": "Solar Analytics observes a solar forecast profile and compares it with your canonical PV power/energy sensors. The forecast can come from any Home Assistant Energy Dashboard solar-forecast integration (Forecast.Solar, Solcast, ...) or from a forecast entity you choose. The integration is read-only: it never controls devices, sends notifications, or triggers services.\n\nBy default, actual-PV entities and the forecast config entry are auto-detected from the Energy Dashboard configuration. Override any field below to bind to different sensors or a different forecast source.",
         "data": {
           "actual_power_entity": "Actual PV power sensor",
           "actual_energy_today_entity": "Actual PV energy-today sensor",
@@ -112,17 +112,16 @@
   "entity": {
     "sensor": {
       "actual_pv_power": {"name": "Actual PV power"},
-      "native_modules_power": {"name": "Native Forecast.Solar module power"},
-      "forecast_solar_power": {"name": "Forecast.Solar power"},
-      "vrm_forecast_power": {"name": "Victron VRM forecast power"},
+      "native_modules_power": {"name": "Forecast module power"},
+      "forecast_solar_power": {"name": "Forecast power"},
       "analysis_status": {
         "name": "Analysis status",
         "state": {
           "ready": "Ready",
           "insufficient_data": "Insufficient data",
-          "native_source_unavailable": "Native Forecast.Solar unavailable",
-          "native_source_stale": "Native Forecast.Solar stale",
-          "unsupported_native_contract": "Unsupported Forecast.Solar contract",
+          "native_source_unavailable": "Forecast source unavailable",
+          "native_source_stale": "Forecast source stale",
+          "unsupported_native_contract": "Unsupported forecast contract",
           "unsupported_forecast_entity_contract": "Forecast entity has no timestamped profile",
           "actual_source_stale": "Actual PV telemetry stale",
           "actual_source_unavailable": "Actual PV telemetry unavailable",
@@ -130,12 +129,12 @@
           "binding_ambiguous": "Energy source binding ambiguous",
           "binding_changed": "Energy source binding changed",
           "canonical_actual_mismatch": "Energy dashboard actual mismatch",
-          "native_entry_unavailable": "Forecast.Solar entry unavailable",
+          "native_entry_unavailable": "Forecast config entry unavailable",
           "storage_failure": "Storage failure"
         }
       },
       "native_source_status": {
-        "name": "Native Forecast.Solar source status",
+        "name": "Forecast source status",
         "state": {
           "ok": "OK",
           "uninitialized": "Uninitialized",

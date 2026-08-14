@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Solar Analytics",
-        "description": "Solar Analytics спостерігає за профілем Forecast.Solar, який використовує Home Assistant Energy Dashboard, і порівнює його з canonical актуальними PV-сенсорами (потужність/енергія). Інтеграція read-only: не керує пристроями, не надсилає нотифікації, не викликає сервіси.\n\nЗа замовчуванням actual-PV сенсори та Forecast.Solar config entry автоматично визначаються з конфігурації Energy Dashboard. Заповніть поля нижче, лише якщо хочете прив’язатися до інших сенсорів або іншого Forecast.Solar entry.",
+        "description": "Solar Analytics спостерігає за профілем сонячного прогнозу і порівнює його з canonical актуальними PV-сенсорами (потужність/енергія). Прогноз може надходити від будь-якої solar-forecast інтеграції Energy Dashboard (Forecast.Solar, Solcast, ...) або від обраного вами сенсора прогнозу. Інтеграція read-only: не керує пристроями, не надсилає нотифікації, не викликає сервіси.\n\nЗа замовчуванням actual-PV сенсори та config entry прогнозу автоматично визначаються з конфігурації Energy Dashboard. Заповніть поля нижче, лише якщо хочете прив’язатися до інших сенсорів або іншого джерела прогнозу.",
         "data": {
           "actual_power_entity": "Сенсор фактичної PV-потужності",
           "actual_energy_today_entity": "Сенсор фактичної PV-енергії (за сьогодні)",
@@ -112,17 +112,16 @@
   "entity": {
     "sensor": {
       "actual_pv_power": {"name": "Фактична PV-потужність"},
-      "native_modules_power": {"name": "Потужність модулів (Native Forecast.Solar)"},
-      "forecast_solar_power": {"name": "Forecast.Solar потужність"},
-      "vrm_forecast_power": {"name": "Victron VRM forecast потужність"},
+      "native_modules_power": {"name": "Потужність модулів (прогноз)"},
+      "forecast_solar_power": {"name": "Потужність прогнозу"},
       "analysis_status": {
         "name": "Статус аналізу",
         "state": {
           "ready": "Готово",
           "insufficient_data": "Недостатньо даних",
-          "native_source_unavailable": "Native Forecast.Solar недоступний",
-          "native_source_stale": "Native Forecast.Solar застарілий",
-          "unsupported_native_contract": "Непідтримуваний контракт Forecast.Solar",
+          "native_source_unavailable": "Джерело прогнозу недоступне",
+          "native_source_stale": "Джерело прогнозу застаріле",
+          "unsupported_native_contract": "Непідтримуваний контракт прогнозу",
           "unsupported_forecast_entity_contract": "Сенсор прогнозу без timestamped-профілю",
           "actual_source_stale": "Actual PV telemetry застаріле",
           "actual_source_unavailable": "Actual PV telemetry недоступне",
@@ -130,12 +129,12 @@
           "binding_ambiguous": "Прив’язка Energy source неоднозначна",
           "binding_changed": "Прив’язку Energy source змінено",
           "canonical_actual_mismatch": "Actual в Energy dashboard не збігається",
-          "native_entry_unavailable": "Forecast.Solar entry недоступний",
+          "native_entry_unavailable": "Config entry прогнозу недоступний",
           "storage_failure": "Помилка сховища"
         }
       },
       "native_source_status": {
-        "name": "Статус Native Forecast.Solar",
+        "name": "Статус джерела прогнозу",
         "state": {
           "ok": "OK",
           "uninitialized": "Не ініціалізовано",
