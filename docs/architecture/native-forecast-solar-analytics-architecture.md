@@ -2,11 +2,18 @@
 
 ## Scope
 
-Solar Analytics is a read-only Home Assistant custom integration. It observes the exact Forecast.Solar profile used by Energy Dashboard, compares it with canonical PV telemetry, and persists bounded analytics. Physical planning, relay ownership, and control remain outside this project.
+Solar Analytics is a read-only Home Assistant custom integration. It observes a solar forecast profile, compares it with canonical PV telemetry, and persists bounded analytics. Physical planning, relay ownership, and control remain outside this project.
+
+The forecast source is generalized. It is one of two user-selected sources (`forecast_source_type`):
+
+- An **Energy Dashboard solar-forecast integration** (Forecast.Solar, Solcast, and any future provider), observed through `homeassistant.components.<domain>.energy.async_get_solar_forecast`, where `<domain>` is the bound config entry's own domain. Handled by `native_adapter.py`.
+- A **forecast entity** whose attributes expose a timestamped Wh-per-period map (`wh_hours`, `wh_period`, or `watt_hours_period`). Handled by `forecast_source.py`.
+
+Forecast.Solar keeps its exact model fingerprint and `wh_period` liveness gate, so an existing install's lineage and 14-day accuracy warm-up are preserved. The rest of this document describes the Forecast.Solar path in detail; the same normalization, admission, and persistence contracts apply to every source.
 
 ## Native acquisition contract
 
-Home Assistant Core 2026.7.4 exposes the Energy Dashboard profile through the native energy-platform callable:
+Home Assistant Core 2026.7.4 exposes the Energy Dashboard profile through the native energy-platform callable. Solar Analytics resolves it from the bound entry's domain rather than a single hardcoded provider:
 
 ```python
 from homeassistant.components.forecast_solar.energy import async_get_solar_forecast
@@ -15,7 +22,7 @@ forecast = await async_get_solar_forecast(hass, config_entry_id)
 # {"wh_hours": {"<ISO timestamp>": <Wh>, ...}}
 ```
 
-The loaded Forecast.Solar config-entry runtime is the source of the timestamped profile. Solar Analytics must never construct a second acquisition path, pass raw config-entry secrets into analytics, or treat a cached scalar as a complete profile.
+The loaded provider config-entry runtime is the source of the timestamped profile. Solar Analytics must never construct a self-initiated acquisition path, pass raw config-entry secrets into analytics, or treat a cached scalar as a complete profile.
 
 ## Adapter contract
 

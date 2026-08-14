@@ -7,6 +7,18 @@ All notable changes to Solar Analytics are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Generalized the forecast source. Solar Analytics is no longer Forecast.Solar
+  only. The Energy Dashboard adapter now binds to any integration that provides
+  the Home Assistant solar-forecast platform (Forecast.Solar, Solcast, ...),
+  resolving the helper from the bound config entry's own domain. A new
+  `forecast_entity` source type reads a timestamped Wh-per-period profile
+  (`wh_hours`, `wh_period`, or `watt_hours_period`) from a chosen forecast
+  entity. Both remain read-only and fail closed. An entity that exposes no
+  timestamped profile is rejected with the new
+  `unsupported_forecast_entity_contract` status; no energy is fabricated from a
+  scalar. Config-entry version 6 adds `forecast_source_type` and
+  `forecast_entity_id`. Existing Forecast.Solar installs keep their exact model
+  fingerprint and lineage, so the 14-day accuracy warm-up is not reset.
 - Imported historical actual production. On setup Solar Analytics reads the
   configured actual PV **energy** sensor's long-term Recorder statistics
   (hourly, never purged) through `statistics_during_period` on the Recorder's
@@ -35,6 +47,13 @@ All notable changes to Solar Analytics are documented here. The format follows
   and an assertion that `sqlite3` stays imported only by `storage_v2.py`.
 - `recorder` in `manifest.json` `after_dependencies` (an ordering hint, not a
   hard dependency: the entry still loads and reports `recorder_unavailable`).
+
+### Changed
+- Removed the always-`None` Victron VRM forecast sensor and its payload keys.
+  User-facing labels are now provider-neutral ("Forecast power", "Forecast
+  source status"); the underlying entity ids, unique ids, status enum values,
+  and payload keys are unchanged, so existing dashboards and automations keep
+  working.
 
   Evidence status for the import is **PARTIAL**. Home Assistant is not
   installed in CI, so the Recorder call is exercised against a recording stub.
