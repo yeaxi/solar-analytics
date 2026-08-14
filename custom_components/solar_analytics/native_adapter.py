@@ -8,7 +8,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -20,9 +20,12 @@ from .const import (
 )
 from .native import (
     NativeProfile,
+    build_generic_model_fingerprint,
     build_native_model_fingerprint,
     normalize_native_wh_hours,
 )
+
+_SECRET_CONFIG_MARKERS = ("api_key", "apikey", "token", "password", "secret", "credential")
 
 _LOGGER = logging.getLogger(__name__)
 # Minimum supported Home Assistant Core version. The native adapter also
@@ -111,19 +114,52 @@ class NativeRead:
     reason: str | None = None
 
 
-class ForecastSolarNativeAdapter:
-    """Observe, validate and normalize the native Energy Dashboard profile.
+@runtime_checkable
+class ForecastProfileProvider(Protocol):
+    """Provider-neutral contract the coordinator consumes.
 
-    This class never polls Forecast.Solar directly and never asks the native
-    coordinator to refresh. The only detailed profile call is the pinned HA helper
-    used by the Energy Dashboard itself.
+    Every forecast source (the Energy Dashboard adapter below, or the forecast
+    entity adapter in :mod:`forecast_source`) resolves a binding, observes a
+    profile without ever provoking the source, and reports a lineage
+    ``source_kind`` so the store keeps sources separate. Liveness is provider
+    defined: an Energy provider watches its coordinator, an entity provider
+    watches the entity's ``last_updated``.
     """
+
+    source_kind: str
+    binding: NativeBinding
+
+    async def async_initialize(self) -> NativeBinding: ...
+
+    async def async_capture(self) -> NativeRead: ...
+
+    async def async_unload(self) -> None: ...
+
+
+class ForecastSolarNativeAdapter:
+    """Observe, validate and normalize an Energy Dashboard solar-forecast profile.
+
+    Works with any Home Assistant integration that provides the Energy
+    Dashboard solar-forecast platform (``<domain>/energy.py`` exposing
+    ``async_get_solar_forecast``). Forecast.Solar is one such integration;
+    Solcast is another. This class never polls the provider directly and never
+    asks its coordinator to refresh. The only detailed profile call is the
+    pinned HA helper the Energy Dashboard itself uses.
+
+    Forecast.Solar keeps its exact model fingerprint and ``wh_period`` liveness
+    gate so existing installs never start a new lineage. Other providers use a
+    generic config fingerprint and rely on the coordinator's own
+    ``last_update_success`` and listener signal.
+    """
+
+    source_kind = "native"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
         self.binding = NativeBinding("uninitialized")
         self._helper: Any | None = None
+        self._helper_domain: str | None = None
         self._native_listener_remove: Any | None = None
         self._native_listener_runtime: Any | None = None
         self._last_marker: tuple[str, str] | None = None
@@ -249,11 +285,11 @@ class ForecastSolarNativeAdapter:
             )
 
         config_entry = self.hass.config_entries.async_get_entry(native_entry_id)
-        if config_entry is None or getattr(config_entry, "domain", None) != "forecast_solar":
+        if config_entry is None:
             return NativeBinding(
                 "native_entry_unavailable",
                 native_entry_id=native_entry_id,
-                reason="entry_missing_or_wrong_domain",
+                reason="entry_missing",
             )
         return NativeBinding(
             "ok",
@@ -343,23 +379,27 @@ class ForecastSolarNativeAdapter:
             return False
         return _version_tuple(version) >= TARGET_CORE_MIN_VERSION
 
-    async def _async_get_helper(self) -> Any | None:
-        """Return the Forecast.Solar Energy helper, or ``None`` on incompatibility.
+    async def _async_get_helper(self, domain: str) -> Any | None:
+        """Return the provider's Energy solar-forecast helper, or ``None``.
 
-        Feature detection accepts any callable whose first two positional
-        parameters can accept ``(hass, config_entry_id)``. Later signature
-        changes that keep those two leading positional parameters therefore
-        do not break Solar Analytics.
+        Home Assistant integrations that feed the Energy Dashboard solar
+        forecast expose ``async_get_solar_forecast`` from their ``energy``
+        platform. We resolve it from the bound config entry's own domain
+        (``forecast_solar``, ``solcast_solar``, ...) rather than hardcoding one
+        provider. Feature detection accepts any callable whose first two
+        positional parameters can accept ``(hass, config_entry_id)``.
         """
 
         if not self._core_version_supported():
             return None
-        if self._helper is not None:
+        if not domain:
+            return None
+        if self._helper is not None and self._helper_domain == domain:
             return self._helper
         try:
             module = await self.hass.async_add_executor_job(
                 importlib.import_module,
-                "homeassistant.components.forecast_solar.energy",
+                f"homeassistant.components.{domain}.energy",
             )
             helper = module.async_get_solar_forecast
         except ImportError, AttributeError:
@@ -382,19 +422,63 @@ class ForecastSolarNativeAdapter:
         if len(positional) < 2:
             return None
         self._helper = helper
+        self._helper_domain = domain
         return helper
 
     def _native_entry_and_runtime(self) -> tuple[Any | None, Any | None]:
         if not self.binding.native_entry_id:
             return None, None
         native_entry = self.hass.config_entries.async_get_entry(self.binding.native_entry_id)
-        if native_entry is None or getattr(native_entry, "domain", None) != "forecast_solar":
+        if native_entry is None:
             return None, None
         runtime = getattr(native_entry, "runtime_data", None)
         return native_entry, runtime
 
+    @classmethod
+    def _model_from_entry(cls, native_entry: Any) -> NativeModel:
+        """Build the model identity for the bound provider entry.
+
+        Forecast.Solar keeps its exact plane-geometry fingerprint so existing
+        lineages are preserved byte-for-byte. Any other provider gets a generic
+        fingerprint over its non-secret config so a genuinely different source
+        starts its own lineage.
+        """
+
+        if getattr(native_entry, "domain", None) == "forecast_solar":
+            return cls._forecast_solar_model(native_entry)
+        return cls._generic_model(native_entry)
+
     @staticmethod
-    def _model_from_entry(native_entry: Any) -> NativeModel:
+    def _generic_model(native_entry: Any) -> NativeModel:
+        try:
+            values: dict[str, Any] = {
+                "status": "ok",
+                "provider_domain": getattr(native_entry, "domain", None),
+                "provider_entry_id": getattr(native_entry, "entry_id", None),
+            }
+            for source in (
+                dict(getattr(native_entry, "data", {}) or {}),
+                dict(getattr(native_entry, "options", {}) or {}),
+            ):
+                for key, value in source.items():
+                    if any(marker in str(key).lower() for marker in _SECRET_CONFIG_MARKERS):
+                        continue
+                    if value is None or isinstance(value, (str, int, float, bool)):
+                        values.setdefault(f"cfg_{key}", value)
+            fingerprint = build_generic_model_fingerprint(values)
+            if fingerprint is None:
+                return NativeModel(
+                    "unsupported_native_contract", values, None, "generic_model_invalid"
+                )
+            values["model_fingerprint_sha256"] = fingerprint
+            return NativeModel("ok", values, fingerprint)
+        except AttributeError, TypeError, ValueError:
+            return NativeModel(
+                "unsupported_native_contract", {}, None, "native_entry_shape_invalid"
+            )
+
+    @staticmethod
+    def _forecast_solar_model(native_entry: Any) -> NativeModel:
         try:
             data = dict(getattr(native_entry, "data", {}) or {})
             options = dict(getattr(native_entry, "options", {}) or {})
@@ -440,24 +524,32 @@ class ForecastSolarNativeAdapter:
         self.binding = await self.async_resolve_binding()
         if not self.binding.ready:
             return NativeRead(self.binding.status, self.binding, reason=self.binding.reason)
-        helper = await self._async_get_helper()
+        native_entry, runtime = self._native_entry_and_runtime()
+        if native_entry is None or runtime is None:
+            return NativeRead("native_source_unavailable", self.binding, reason="entry_unloaded")
+        domain = str(getattr(native_entry, "domain", "") or "")
+        helper = await self._async_get_helper(domain)
         if helper is None:
             return NativeRead(
                 "unsupported_native_contract", self.binding, reason="helper_import_or_signature"
             )
-        native_entry, runtime = self._native_entry_and_runtime()
-        if native_entry is None or runtime is None:
-            return NativeRead("native_source_unavailable", self.binding, reason="entry_unloaded")
         # The native config entry may finish setup after this integration due
         # to config-entry ordering. Retry listener attachment on every capture,
         # but never initiate a native refresh here.
         self._attach_native_listener()
         runtime_data = getattr(runtime, "data", None)
-        wh_period = getattr(runtime_data, "wh_period", None)
-        if not isinstance(wh_period, Mapping):
-            return NativeRead(
-                "unsupported_native_contract", self.binding, reason="runtime_wh_period_missing"
-            )
+        # Forecast.Solar's coordinator exposes ``wh_period`` on its runtime; we
+        # keep that strict shape gate for it. Other providers do not share that
+        # internal, so their liveness rests on ``last_update_success`` and the
+        # observed listener callback below.
+        if domain == "forecast_solar":
+            wh_period = getattr(runtime_data, "wh_period", None)
+            if not isinstance(wh_period, Mapping):
+                return NativeRead(
+                    "unsupported_native_contract",
+                    self.binding,
+                    reason="runtime_wh_period_missing",
+                )
         if getattr(runtime, "last_update_success", False) is not True:
             return NativeRead(
                 "native_source_unavailable", self.binding, reason="last_update_not_successful"
@@ -542,3 +634,9 @@ class ForecastSolarNativeAdapter:
             self._native_listener_remove()
             self._native_listener_remove = None
             self._native_listener_runtime = None
+
+
+# Provider-neutral alias. The Energy Dashboard adapter is one
+# ``ForecastProfileProvider`` implementation; the entity adapter in
+# ``forecast_source`` is the other. New code references ``EnergyForecastProvider``.
+EnergyForecastProvider = ForecastSolarNativeAdapter
