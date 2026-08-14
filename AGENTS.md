@@ -49,3 +49,50 @@ The three stages of a soak run must stay separated:
 ## Project-local references
 
 Detailed architecture references live under `docs/architecture/` and are published with the rest of the docs at https://yeaxi.github.io/solar-analytics/. This `AGENTS.md` is the short policy source; the reference copies do not authorize deployment or provider/config mutations. `README.md` is the user-facing document; `CONTRIBUTING.md` is the contributor-facing document.
+
+## Cursor Cloud specific instructions
+
+This project is a pure-Python package with **no runtime dependencies** and no
+long-running service. There is nothing to "boot": development is entirely
+`pytest` (with a stubbed Home Assistant, per `CONTRIBUTING.md`), `ruff`, `mypy`,
+`compileall`, and the `tools/`/`scripts/` CLIs. No live Home Assistant, database,
+or Forecast.Solar network access is used or permitted (see the read-only
+boundary above).
+
+Interpreter split (non-obvious): the integration targets **Python 3.14** (CI,
+`ruff` `target-version`, and `mypy` `python_version` all pin 3.14), but the base
+VM's system `python3` is 3.12. The startup update script provisions two
+prebuilt virtualenvs so future agents do not need to install anything:
+
+- `~/.venvs/solar-analytics` — Python 3.14, holds `requirements-dev.txt`
+  (`pytest`, `ruff`, `mypy`). Use this for all lint/type/test/build checks.
+- `~/.venvs/solar-analytics-docs` — Python 3.12, holds `requirements-docs.txt`
+  (`mkdocs-material`). Docs CI runs on 3.12, not 3.14.
+
+Run the checks documented in `CONTRIBUTING.md`, but invoke them through the
+3.14 venv, e.g.:
+
+```bash
+~/.venvs/solar-analytics/bin/ruff check .
+~/.venvs/solar-analytics/bin/ruff format --check .
+~/.venvs/solar-analytics/bin/python -m mypy
+~/.venvs/solar-analytics/bin/python -m compileall -q custom_components/solar_analytics tools scripts
+~/.venvs/solar-analytics/bin/python -m pytest
+```
+
+Docs build (auxiliary CI gate) uses the 3.12 venv:
+
+```bash
+~/.venvs/solar-analytics-docs/bin/mkdocs build --strict
+```
+
+Gotchas:
+
+- `mkdocs build --strict` prints a red, multi-line `mkdocs-material` banner
+  advertising a future 2.0 release. That banner is advisory, **not** a build
+  failure; the command still exits 0 and writes `site/` (which is gitignored).
+- The soak checkpoint validator (`tools/pv_soak_checkpoint.py`) is a real,
+  runnable CLI and the closest thing to an end-to-end "app": build a collector
+  envelope from the `template` subcommand, `snapshot` it into an immutable
+  content-addressed file, then `analyze` it. It never touches the network, HA,
+  SSH, or SQLite itself (see the read-only soak checkpoint policy above).
