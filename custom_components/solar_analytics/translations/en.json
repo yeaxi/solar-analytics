@@ -43,7 +43,7 @@
     "error": {
       "invalid_actual_power_entity": "The selected sensor does not look like a PV power sensor (device_class=power, unit W or kW).",
       "invalid_actual_energy_entity": "The selected sensor does not look like a PV energy counter (device_class=energy, unit kWh or Wh).",
-      "invalid_native_forecast_entry": "The selected forecast config entry does not exist.",
+      "invalid_native_forecast_entry": "The selected config entry does not provide an Energy Dashboard solar forecast. Choose a Forecast.Solar, Solcast, or other solar-forecast integration entry.",
       "invalid_forecast_source_type": "Choose a valid forecast source type.",
       "invalid_forecast_entity": "Select a forecast entity that exists when the forecast source type is 'Forecast entity'.",
       "invalid_snapshot_hour": "Snapshot hour must be an integer between 0 and 23.",
@@ -61,6 +61,14 @@
         "title": "Solar Analytics options",
         "description": "There are no mutable thresholds. Any change to model shape or snapshot times starts a new lineage; historical results are kept for previous lineages.",
         "data": {}
+      }
+    }
+  },
+  "selector": {
+    "forecast_source_type": {
+      "options": {
+        "energy_entry": "Energy Dashboard solar-forecast integration",
+        "forecast_entity": "Forecast entity"
       }
     }
   },
