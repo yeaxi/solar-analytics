@@ -27,12 +27,18 @@ def _install_ha_stub() -> None:
     config_entries.ConfigEntry = object
     core = types.ModuleType("homeassistant.core")
     core.HomeAssistant = object
+    helpers = types.ModuleType("homeassistant.helpers")
+    helpers.__path__ = []
+    event = types.ModuleType("homeassistant.helpers.event")
+    event.async_track_state_change_event = lambda hass, entity_ids, action: (lambda: None)
     sys.modules.update(
         {
             "homeassistant": ha,
             "homeassistant.const": ha_const,
             "homeassistant.config_entries": config_entries,
             "homeassistant.core": core,
+            "homeassistant.helpers": helpers,
+            "homeassistant.helpers.event": event,
         }
     )
     parent = types.ModuleType("custom_components")
@@ -65,6 +71,9 @@ class FakeHass:
 
     async def async_add_executor_job(self, target, *args):
         return target(*args)
+
+    def async_create_task(self, coro):
+        return asyncio.ensure_future(coro)
 
 
 class FakeEntry:
@@ -248,6 +257,63 @@ def test_entity_provider_requires_forecast_entity_id() -> None:
     binding = asyncio.run(provider.async_resolve_binding())
     assert binding.status == "binding_unavailable"
     assert binding.reason == "forecast_entity_id_missing"
+
+
+def test_entity_provider_state_listener_records_and_reuses_observation() -> None:
+    """A state change records an observation the later scheduled capture reuses.
+
+    The recorded observation's ``observed_at_utc`` predates the later capture,
+    so a scheduled morning snapshot can satisfy ``observed_at_utc <= scheduled``.
+    """
+
+    now = datetime.now(UTC)
+    state = FakeState(
+        "on",
+        {"wh_hours": _future_wh_hours(now), "unit_of_measurement": "Wh"},
+        now,
+    )
+    provider = _provider({"sensor.my_forecast": state})
+    module = importlib.import_module("custom_components.solar_analytics.forecast_source")
+
+    # Patch the tracker on the imported module so the assertion is robust to
+    # cross-test module caching of the ``from ... import`` binding.
+    registered: dict[str, object] = {}
+
+    def _track(hass, entity_ids, action):
+        for entity_id in entity_ids:
+            registered[entity_id] = action
+
+        def remove():
+            for entity_id in entity_ids:
+                registered.pop(entity_id, None)
+
+        return remove
+
+    original = module.async_track_state_change_event
+    module.async_track_state_change_event = _track
+    try:
+
+        async def run():
+            await provider.async_initialize()
+            assert "sensor.my_forecast" in registered
+            provider._handle_state_event(object())
+            await provider._capture_task
+            early_observation = provider._observation
+            later = await provider.async_capture()
+            await provider.async_unload()
+            return early_observation, later
+
+        early_observation, later = asyncio.run(run())
+    finally:
+        module.async_track_state_change_event = original
+
+    assert early_observation is not None
+    assert later.status == "ok"
+    assert later.observation is not None
+    assert later.observation.observation_sequence == early_observation.observation_sequence
+    assert later.observation.observed_at_utc == early_observation.observed_at_utc
+    # Unload removed the listener (read-only teardown).
+    assert "sensor.my_forecast" not in registered
 
 
 def test_migration_preserves_forecast_source_fields() -> None:

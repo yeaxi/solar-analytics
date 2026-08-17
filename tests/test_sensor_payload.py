@@ -99,6 +99,9 @@ def _install_entity_stubs() -> None:
 
     ha_helpers_event = types.ModuleType("homeassistant.helpers.event")
     ha_helpers_event.async_track_point_in_utc_time = lambda hass, action, when: lambda: None
+    ha_helpers_event.async_track_state_change_event = (
+        lambda hass, entity_ids, action: lambda: None
+    )
 
     ha_components = types.ModuleType("homeassistant.components")
 

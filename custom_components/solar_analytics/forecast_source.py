@@ -20,6 +20,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
     CONF_ACTUAL_ENERGY_TODAY,
@@ -59,10 +60,36 @@ class EntityForecastProvider:
         self._sequence = 0
         self._last_marker: tuple[str, str] | None = None
         self._observation: NativeObservation | None = None
+        self._listener_remove: Any | None = None
+        self._capture_task: Any | None = None
 
     async def async_initialize(self) -> NativeBinding:
         self.binding = await self.async_resolve_binding()
+        if self.binding.ready and self.binding.forecast_entity_id:
+            self._attach_state_listener(self.binding.forecast_entity_id)
         return self.binding
+
+    def _attach_state_listener(self, entity_id: str) -> None:
+        """Observe the forecast entity's own state changes (read-only).
+
+        A day-ahead forecast entity publishes its profile at an arbitrary time
+        (often overnight) and then stays quiet. Capturing on the state change
+        records the observation at the instant the profile actually appeared, so
+        a later scheduled morning snapshot can reuse that earlier observation and
+        keep ``observed_at_utc <= scheduled_at_utc``. This never refreshes the
+        entity or calls a service; it only reacts to changes Home Assistant
+        already emitted.
+        """
+
+        if self._listener_remove is not None:
+            return
+        self._listener_remove = async_track_state_change_event(
+            self.hass, [entity_id], self._handle_state_event
+        )
+
+    def _handle_state_event(self, _event: Any) -> None:
+        if self._capture_task is None or self._capture_task.done():
+            self._capture_task = self.hass.async_create_task(self.async_capture())
 
     async def async_resolve_binding(self) -> NativeBinding:
         """Resolve the forecast entity plus the canonical actual-PV sensors.
@@ -223,4 +250,8 @@ class EntityForecastProvider:
         return None
 
     async def async_unload(self) -> None:
-        return None
+        if self._capture_task is not None and not self._capture_task.done():
+            self._capture_task.cancel()
+        if self._listener_remove is not None:
+            self._listener_remove()
+            self._listener_remove = None
