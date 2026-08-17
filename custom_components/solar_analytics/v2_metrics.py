@@ -9,9 +9,6 @@ from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
 
-# ``KYIV`` is retained as a convenient default for pure-function tests only;
-# runtime code accepts any ``ZoneInfo`` chosen in the config flow.
-KYIV = ZoneInfo("Europe/Kyiv")
 MAX_ACTUAL_AGE_SECONDS = 15 * 60
 MIN_FORECAST_COVERAGE = 0.95
 MIN_ACTUAL_COVERAGE = 0.90
@@ -27,14 +24,14 @@ class ScheduledSlot:
     target_local_date: date
 
 
-def local_datetime(day: date, hour: int, minute: int, *, tz: ZoneInfo = KYIV) -> datetime:
+def local_datetime(day: date, hour: int, minute: int, *, tz: ZoneInfo) -> datetime:
     return datetime.combine(day, time(hour, minute), tzinfo=tz)
 
 
 def daily_schedule(
     day: date,
     *,
-    tz: ZoneInfo = KYIV,
+    tz: ZoneInfo,
     morning_hour: int = 6,
     day_ahead_hour: int = 23,
 ) -> tuple[ScheduledSlot, ScheduledSlot]:
@@ -57,7 +54,7 @@ def daily_schedule(
 def previous_slots_to_finalize(
     now_utc: datetime,
     *,
-    tz: ZoneInfo = KYIV,
+    tz: ZoneInfo,
     lookback_days: int = 2,
     morning_hour: int = 6,
     day_ahead_hour: int = 23,

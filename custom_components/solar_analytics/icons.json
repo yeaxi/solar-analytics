@@ -4,7 +4,6 @@
       "actual_pv_power": {"default": "mdi:solar-power"},
       "native_modules_power": {"default": "mdi:solar-panel-large"},
       "forecast_solar_power": {"default": "mdi:weather-sunny"},
-      "vrm_forecast_power": {"default": "mdi:solar-power-variant"},
       "analysis_status": {
         "default": "mdi:chart-bell-curve",
         "state": {
@@ -13,6 +12,7 @@
           "native_source_unavailable": "mdi:alert-circle-outline",
           "native_source_stale": "mdi:clock-alert-outline",
           "unsupported_native_contract": "mdi:alert-octagon-outline",
+          "unsupported_forecast_entity_contract": "mdi:alert-octagon-outline",
           "actual_source_stale": "mdi:clock-alert-outline",
           "actual_source_unavailable": "mdi:alert-circle-outline",
           "binding_unavailable": "mdi:link-off",
@@ -28,7 +28,8 @@
         "state": {
           "ok": "mdi:source-branch-check",
           "native_source_unavailable": "mdi:source-branch-remove",
-          "native_source_stale": "mdi:source-branch-refresh"
+          "native_source_stale": "mdi:source-branch-refresh",
+          "unsupported_forecast_entity_contract": "mdi:alert-octagon-outline"
         }
       },
       "forecast_coverage": {"default": "mdi:chart-donut"},

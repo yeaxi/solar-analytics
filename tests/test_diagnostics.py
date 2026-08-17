@@ -126,6 +126,7 @@ class _FakeBinding:
     def __init__(self):
         self.status = "ok"
         self.native_entry_id = "native-1"
+        self.forecast_entity_id = None
         self.actual_power_entity = "sensor.example_pv_power"
         self.actual_energy_entity = "sensor.example_pv_energy"
         self.reason = None
@@ -143,6 +144,7 @@ class _FakeCoordinator:
         self.time_zone = "Europe/Berlin"
         self.morning_hour = 5
         self.day_ahead_hour = 22
+        self.source_kind = "native"
         self.native_adapter = _FakeAdapter()
         self.data = {
             "status": "ready",
@@ -194,7 +196,9 @@ def test_diagnostics_returns_expected_shape_and_redacts_unique_id(diagnostics) -
 
     assert result["binding"] == {
         "status": "ok",
+        "source_kind": "native",
         "native_entry_id": "native-1",
+        "forecast_entity_id": None,
         "actual_power_entity": "sensor.example_pv_power",
         "actual_energy_entity": "sensor.example_pv_energy",
         "reason": None,

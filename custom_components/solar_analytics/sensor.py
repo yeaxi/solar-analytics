@@ -43,6 +43,7 @@ _ANALYSIS_STATUS_OPTIONS = (
     "native_source_unavailable",
     "native_source_stale",
     "unsupported_native_contract",
+    "unsupported_forecast_entity_contract",
     "actual_source_stale",
     "actual_source_unavailable",
     "binding_unavailable",
@@ -56,6 +57,7 @@ _NATIVE_SOURCE_OPTIONS = (
     "ok",
     "uninitialized",
     "unsupported_native_contract",
+    "unsupported_forecast_entity_contract",
     "native_source_unavailable",
     "native_source_stale",
     "binding_unavailable",
@@ -176,16 +178,6 @@ SENSOR_DESCRIPTIONS: tuple[SolarAnalyticsSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("forecast_solar_power_w"),
-    ),
-    SolarAnalyticsSensorEntityDescription(
-        key="vrm_forecast_power",
-        translation_key="vrm_forecast_power",
-        icon="mdi:solar-power-variant",
-        native_unit_of_measurement=UnitOfPower.WATT,
-        device_class=SensorDeviceClass.POWER,
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_registry_enabled_default=False,
-        value_fn=lambda data: data.get("vrm_forecast_power_w"),
     ),
     SolarAnalyticsSensorEntityDescription(
         key="analysis_status",
@@ -363,7 +355,7 @@ class SolarAnalyticsSensor(CoordinatorEntity[SolarAnalyticsCoordinator], SensorE
             identifiers={(DOMAIN, "solar_analytics")},
             name=NAME,
             manufacturer=MANUFACTURER,
-            model="Native Forecast.Solar period analytics",
+            model="Forecast vs actual PV analytics",
             sw_version=VERSION,
         )
 

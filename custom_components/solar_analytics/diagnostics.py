@@ -50,7 +50,9 @@ async def async_get_config_entry_diagnostics(
         "binding": (
             {
                 "status": binding.status,
+                "source_kind": getattr(coordinator, "source_kind", None) if coordinator else None,
                 "native_entry_id": binding.native_entry_id,
+                "forecast_entity_id": binding.forecast_entity_id,
                 "actual_power_entity": binding.actual_power_entity,
                 "actual_energy_entity": binding.actual_energy_entity,
                 "reason": binding.reason,

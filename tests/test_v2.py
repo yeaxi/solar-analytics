@@ -123,7 +123,7 @@ def test_day_boundary_clip_admits_the_zero_energy_night_and_rejects_energetic_cr
 
 def test_schedule_is_fixed_local_time_dst_aware_and_targets_the_next_day() -> None:
     anchor = date(2026, 3, 28)
-    morning, day_ahead = daily_schedule(anchor)
+    morning, day_ahead = daily_schedule(anchor, tz=KYIV)
     assert (morning.snapshot_type, day_ahead.snapshot_type) == ("morning", "day_ahead")
     assert morning.scheduled_at_local.hour == 6
     assert day_ahead.scheduled_at_local.hour == 23
@@ -136,7 +136,7 @@ def test_schedule_is_fixed_local_time_dst_aware_and_targets_the_next_day() -> No
     assert day_ahead.target_local_date == morning.target_local_date
 
     now = datetime(2026, 8, 3, 12, tzinfo=UTC)
-    slots = previous_slots_to_finalize(now)
+    slots = previous_slots_to_finalize(now, tz=KYIV)
     assert slots
     assert all(slot.scheduled_at_utc < now for slot in slots)
 
@@ -257,7 +257,7 @@ def test_v2_storage_migrates_additively_and_slot_is_idempotent(tmp_path) -> None
         "native_contract_version": "ha_forecast_solar_energy_2026.7.4",
     }
     lineage = store.ensure_lineage(contract_key="A", metadata=metadata, now=now)
-    schedule = daily_schedule(date(2026, 8, 3))[0]
+    schedule = daily_schedule(date(2026, 8, 3), tz=KYIV)[0]
     first = store.ensure_snapshot_slot(
         lineage_id=lineage,
         source_kind="native",

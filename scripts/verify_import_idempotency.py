@@ -32,7 +32,9 @@ from solar_analytics.imported_actuals import (  # noqa: E402
 from solar_analytics.storage_v2 import SolarAnalyticsV2Store  # noqa: E402
 
 ENTITY = "sensor.example_pv_energy"
-TZ = ZoneInfo("Europe/Kyiv")
+# A DST-observing zone (not the author's home) keeps the 23/24/25-hour day
+# coverage exercised while staying installation-neutral.
+TZ = ZoneInfo("Europe/Berlin")
 TODAY = datetime(2026, 8, 3, tzinfo=UTC).date()
 RESET_AT_HOUR = 4000
 

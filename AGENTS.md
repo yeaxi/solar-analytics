@@ -8,13 +8,15 @@ Every user configures which sensors and which Forecast.Solar entry the integrati
 
 ## Authoritative sources
 
-- Home Assistant native Forecast.Solar Energy binding (via `homeassistant.components.forecast_solar.energy.async_get_solar_forecast`) is the sole forecast-profile source.
+- The forecast profile comes from one of two user-selected sources, chosen by `forecast_source_type` in the config flow:
+  - **Energy Dashboard solar-forecast integration** (default). Any integration that provides Home Assistant's solar-forecast platform (`homeassistant.components.<domain>.energy.async_get_solar_forecast`) is accepted: Forecast.Solar, Solcast, and any future provider. The helper is resolved from the bound config entry's own domain, never hardcoded to one provider.
+  - **Forecast entity.** A user-selected entity whose attributes expose a timestamped Wh-per-period map (`wh_hours`, `wh_period`, or `watt_hours_period`).
 - Actual PV telemetry comes from **user-selectable** entities in the config flow: an actual PV power sensor (`device_class=power`, unit W or kW) and an actual PV energy counter (`device_class=energy`, unit Wh or kWh). If the user leaves these blank, they are auto-detected from the Energy Dashboard's single solar source.
-- The `custom_components/solar_analytics/native_adapter.py` module is the sole boundary that touches Home Assistant's Forecast.Solar internals. It must not silently substitute another source. A cached scalar is not a valid substitute for a timestamped forecast profile.
+- Two modules are the only forecast-source boundaries. `custom_components/solar_analytics/native_adapter.py` observes an Energy Dashboard provider; `custom_components/solar_analytics/forecast_source.py` reads a forecast entity. Neither may silently substitute another source. A cached scalar is not a valid substitute for a timestamped forecast profile; a forecast entity that exposes no timestamped profile fails closed with `unsupported_forecast_entity_contract`.
 
 ## Read-only boundary (non-negotiable)
 
-While developing, testing, or validating this project, do not call Home Assistant services, reload config entries, restart Home Assistant, trigger refreshes on the native Forecast.Solar coordinator, call `estimate()`, or call provider HTTP endpoints. `tests/test_read_only_invariant.py` enforces this at the source-code level for the shipping integration; treat any addition of `hass.services.async_call`, `async_refresh()`, `estimate(`, `requests.*`, or `time.sleep` inside `custom_components/solar_analytics/` as a class-A regression.
+While developing, testing, or validating this project, do not call Home Assistant services, reload config entries, restart Home Assistant, trigger refreshes on any forecast provider's coordinator, call `estimate()`, or call provider HTTP endpoints. The Energy adapter observes a provider coordinator without provoking it; the entity adapter only reads `hass.states.get`. `tests/test_read_only_invariant.py` enforces this at the source-code level for the shipping integration; treat any addition of `hass.services.async_call`, `async_refresh()`, `estimate(`, `requests.*`, or `time.sleep` inside `custom_components/solar_analytics/` as a class-A regression.
 
 ## Evidence contract
 
@@ -44,7 +46,7 @@ The three stages of a soak run must stay separated:
 
 - Anything that would make Solar Analytics installation-specific again (hardcoded entity IDs, hardcoded timezone, hardcoded manufacturer string, Ukrainian-only strings).
 - Physical control of anything. This project has no `services.yaml`; introducing one is out of scope.
-- Provider HTTP fallback paths. If the native Forecast.Solar contract cannot be observed, the integration fails closed. Do not paper over that with a second acquisition path.
+- Provider HTTP that Solar Analytics itself initiates. Forecast is observed only through Home Assistant's own solar-forecast platform helper or through a forecast entity's already-published attributes. If a source cannot yield a timestamped profile, the integration fails closed with an explicit status. Do not paper over that with a self-initiated acquisition path.
 
 ## Project-local references
 

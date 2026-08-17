@@ -159,6 +159,33 @@ def build_native_model_fingerprint(contract: Mapping[str, Any]) -> str | None:
     return digest
 
 
+_SECRET_FINGERPRINT_MARKERS = ("api_key", "apikey", "token", "password", "secret", "credential")
+
+
+def build_generic_model_fingerprint(values: Mapping[str, Any]) -> str | None:
+    """Fingerprint a non-Forecast.Solar forecast source's model identity.
+
+    Forecast providers other than Forecast.Solar do not expose the plane
+    geometry :func:`build_native_model_fingerprint` needs. Their model identity
+    is instead the JSON-canonical set of scalar, non-secret values that shape
+    the forecast (config-entry data/options for an Energy provider, or the
+    entity id and unit for a forecast entity). Secret-like keys never enter the
+    digest so a rotated token does not silently start a new lineage.
+    """
+
+    if values.get("status") != "ok":
+        return None
+    canonical: dict[str, Any] = {"schema": 1}
+    for key, value in values.items():
+        if key in {"status", "model_fingerprint_sha256"}:
+            continue
+        if any(marker in key.lower() for marker in _SECRET_FINGERPRINT_MARKERS):
+            continue
+        if value is None or isinstance(value, (str, int, float, bool)):
+            canonical[key] = value
+    return payload_sha256(canonical)
+
+
 def normalize_native_wh_hours(
     payload: Mapping[str, Any],
     *,
@@ -245,6 +272,30 @@ def normalize_native_wh_hours(
         invalid,
         duplicate_count=max(0, len(parsed) - len(seen)),
     )
+
+
+_ENTITY_WH_MAP_ATTRIBUTES = ("wh_hours", "wh_period", "watt_hours_period")
+
+
+def extract_forecast_entity_wh_hours(attributes: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return a ``{"wh_hours": {...}}`` payload from a forecast entity's attributes.
+
+    Only entities that publish a timestamped Wh-per-period map are supported.
+    A scalar or power-only forecast entity is rejected (returns ``None``)
+    because the accuracy pipeline needs a timestamped energy profile and never
+    fabricates one from an instantaneous value. Recognized attribute names are
+    ``wh_hours``, ``wh_period`` and ``watt_hours_period``, each a mapping of ISO
+    period-end timestamp to Wh. The mapping is handed to
+    :func:`normalize_native_wh_hours`, which fails closed on malformed cells.
+    """
+
+    if not isinstance(attributes, Mapping):
+        return None
+    for name in _ENTITY_WH_MAP_ATTRIBUTES:
+        candidate = attributes.get(name)
+        if isinstance(candidate, Mapping) and candidate:
+            return {"wh_hours": {str(key): value for key, value in candidate.items()}}
+    return None
 
 
 def local_day_bounds_utc(local_date: date, tz: ZoneInfo) -> tuple[datetime, datetime]:

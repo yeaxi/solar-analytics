@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from tools.pv_soak_checkpoint import (
-    BASELINE_UTC,
     SCHEMA_VERSION,
     CheckpointValidationError,
     analyze_snapshot,
@@ -37,7 +36,7 @@ def collector_payload() -> dict:
         "schema_version": SCHEMA_VERSION,
         "checkpoint_id": "checkpoint-001",
         "collected_at_utc": "2026-08-05T12:00:00Z",
-        "baseline_utc": BASELINE_UTC,
+        "baseline_utc": "2026-08-01T00:00:00Z",
         "collection": {
             "method": "read_only_ssh",
             "physical_calls": 0,
@@ -58,7 +57,7 @@ def collector_payload() -> dict:
                     "mutation_mentions": 0,
                     "excerpt_digest": "sha256:" + "b" * 64,
                 }
-                for name in ("solar_analytics", "victron_mqtt", "forecast_solar")
+                for name in ("solar_analytics", "forecast_solar")
             },
         },
         "entities": {

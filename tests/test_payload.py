@@ -71,6 +71,7 @@ class _Binding:
     actual_power_entity: str | None = "sensor.example_pv_power"
     actual_energy_entity: str | None = "sensor.example_pv_energy"
     reason: str | None = None
+    forecast_entity_id: str | None = None
 
 
 @dataclass(frozen=True)

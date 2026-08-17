@@ -1,13 +1,15 @@
 # Solar Analytics
 
-Read-only Home Assistant custom integration. It compares your PV output with the Forecast.Solar profile used by the Energy dashboard.
+Read-only Home Assistant custom integration. It compares your PV output with a solar forecast profile. The forecast can be any Home Assistant Energy dashboard solar-forecast integration (Forecast.Solar, Solcast, and similar) or a forecast entity you choose.
 
 It does not control devices, send notifications, or call services.
 
 ## Requirements
 
 - Home Assistant Core 2026.7 or newer
-- Energy dashboard with exactly one solar source
+- A solar forecast source, one of:
+  - An Energy dashboard solar-forecast integration (Forecast.Solar, Solcast, ...). With exactly one Energy dashboard solar source it is auto-detected.
+  - A forecast entity whose attributes expose a timestamped Wh-per-period map (`wh_hours`, `wh_period`, or `watt_hours_period`).
 - A PV power sensor (`device_class: power`, unit `W` or `kW`)
 - A PV energy counter (`device_class: energy`, unit `Wh` or `kWh`)
 
@@ -35,14 +37,16 @@ Leave fields blank to auto-detect from the Energy dashboard. Change them later u
 
 | Field | Default | Use |
 | --- | --- | --- |
+| Forecast source type | Energy Dashboard integration | Observe an Energy dashboard forecast integration, or read a forecast entity |
 | Actual PV power sensor | auto | Instantaneous PV power |
 | Actual PV energy-today sensor | auto | Daily PV energy counter |
-| Forecast.Solar config entry | auto | Which Forecast.Solar entry to observe |
+| Forecast config entry | auto | Which Energy dashboard forecast entry to observe (Forecast.Solar, Solcast, ...) |
+| Forecast entity | — | The forecast entity to read (only for the "Forecast entity" source type) |
 | Analytics timezone | Home Assistant timezone | Daily rollups and snapshot hours |
 | Morning snapshot hour | 6 | Morning baseline, the day before |
 | Day-ahead snapshot hour | 23 | Day-ahead diagnostic snapshot |
 
-Changing the sensors or Forecast.Solar entry starts a new accuracy history.
+Changing the sensors or the forecast source starts a new accuracy history.
 
 ## What you get
 
@@ -90,9 +94,10 @@ Check `sensor.solar_analytics_analysis_status`. Solar Analytics reports a status
 | --- | --- | --- |
 | `ready` | Accuracy is available | Nothing |
 | `insufficient_data` | Fewer than 14 valid paired days | Wait |
-| `native_source_unavailable` | Forecast.Solar has not produced a profile | Check that Forecast.Solar is loaded |
-| `native_source_stale` | Last Forecast.Solar update is older than 2 hours | Check Forecast.Solar |
-| `unsupported_native_contract` | Home Assistant is too old, or Forecast.Solar changed | Upgrade Home Assistant, or file a bug |
+| `native_source_unavailable` | The forecast source has not produced a profile | Check that the forecast integration or entity is loaded |
+| `native_source_stale` | Last forecast update is older than 2 hours | Check the forecast source |
+| `unsupported_native_contract` | Home Assistant is too old, or the provider's forecast contract changed | Upgrade Home Assistant, or file a bug |
+| `unsupported_forecast_entity_contract` | The chosen forecast entity exposes no timestamped Wh-per-period profile | Pick an entity with a `wh_hours`/`wh_period`/`watt_hours_period` attribute |
 | `actual_source_stale` or `actual_source_unavailable` | PV sensor missing, unavailable, or older than 15 minutes | Fix the sensor |
 | `binding_ambiguous` or `binding_unavailable` | Energy dashboard has zero or more than one solar source | Fix the Energy dashboard, or pick sensors in Reconfigure |
 | `canonical_actual_mismatch` | Override sensors are wrong | Reconfigure with valid power and energy sensors |

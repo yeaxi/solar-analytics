@@ -198,7 +198,6 @@ def _ready_payload() -> dict:
         "actual_power_w": 1234.5,
         "actual_energy_kwh": 12.3,
         "forecast_solar_power_w": 987.6,
-        "vrm_forecast_power_w": None,
         "native_source_status": "ok",
         "native_forecast_contract": {"modules_power_w": 5360.0},
         "forecast_coverage": 0.98,
@@ -376,7 +375,6 @@ def test_imported_history_sensor_is_a_separate_labelled_view(entities) -> None:
 def test_expected_diagnostic_entities_are_hidden_by_default(entities) -> None:
     sensor, binary_sensor = entities
     hidden = {d.key for d in sensor.SENSOR_DESCRIPTIONS if not d.entity_registry_enabled_default}
-    assert "vrm_forecast_power" in hidden
     assert "insight_json" in hidden
     assert "heatmap" in hidden
     assert "imported_actual_history" in hidden
