@@ -104,6 +104,12 @@ class NativeObservation:
     observation_sequence: int
     payload_sha256: str
     model: NativeModel
+    # How ``native_updated_at_utc`` was obtained, for truthful provenance:
+    # "native_listener" (a coordinator listener callback was observed),
+    # "energy_helper_payload" (the Energy helper returned a profile with no
+    # observable update time), or "forecast_entity_state" (a forecast entity's
+    # own state timestamp).
+    update_time_source: str = "native_listener"
 
 
 @dataclass(frozen=True)
@@ -128,6 +134,7 @@ class _Liveness:
     status: str
     reason: str | None = None
     native_updated_at: datetime | None = None
+    time_source: str = "native_listener"
 
 
 @runtime_checkable
@@ -573,13 +580,21 @@ class ForecastSolarNativeAdapter:
         if runtime is not None and getattr(runtime, "last_update_success", None) is False:
             return _Liveness("native_source_unavailable", "last_update_not_successful")
         if self._native_listener_observed_at_utc is not None:
-            return _Liveness("ok", native_updated_at=self._native_listener_observed_at_utc)
+            return _Liveness(
+                "ok",
+                native_updated_at=self._native_listener_observed_at_utc,
+                time_source="native_listener",
+            )
         success_time = (
             self._parse_datetime(getattr(runtime, "last_update_success_time", None))
             if runtime is not None
             else None
         )
-        return _Liveness("ok", native_updated_at=success_time or now)
+        return _Liveness(
+            "ok",
+            native_updated_at=success_time or now,
+            time_source="energy_helper_payload",
+        )
 
     async def async_capture(self) -> NativeRead:
         """Capture a successful native observation already held by the coordinator."""
@@ -668,6 +683,7 @@ class ForecastSolarNativeAdapter:
             observation_sequence=self._sequence,
             payload_sha256=profile.payload_sha256,
             model=model,
+            update_time_source=liveness.time_source,
         )
         self._last_marker = marker
         self._observation = observation

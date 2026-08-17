@@ -222,6 +222,7 @@ class EntityForecastProvider:
             observation_sequence=self._sequence,
             payload_sha256=profile.payload_sha256,
             model=model,
+            update_time_source="forecast_entity_state",
         )
         self._last_marker = marker
         self._observation = observation

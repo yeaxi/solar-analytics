@@ -73,6 +73,21 @@ def build_payload(
     observation = native_read.observation
     model = observation.model if observation is not None else native_read.model
     native_contract: dict[str, Any] = dict(model.values) if model is not None else {}
+    # Provenance reflects the path that actually admitted the profile rather than
+    # a fixed Forecast.Solar-listener assumption: the Energy listener, the Energy
+    # helper payload, or the forecast entity's own state.
+    update_time_source = (
+        getattr(observation, "update_time_source", "unknown")
+        if observation is not None
+        else "none"
+    )
+    binding = native_read.binding
+    if binding.forecast_entity_id:
+        forecast_source = "forecast_entity_state"
+    elif binding.native_entry_id:
+        forecast_source = "energy_dashboard_solar_forecast_platform"
+    else:
+        forecast_source = "unresolved"
     native_contract.update(
         {
             "status": native_read.status,
@@ -80,7 +95,7 @@ def build_payload(
             "model_fingerprint_sha256": model.fingerprint if model else None,
             "native_contract_version": NATIVE_CONTRACT_VERSION,
             "adapter_version": NATIVE_ADAPTER_VERSION,
-            "native_update_time_source": "local_listener_observation",
+            "native_update_time_source": update_time_source,
         }
     )
 
@@ -173,7 +188,7 @@ def build_payload(
         "native_observed_at": _iso(observation.observed_at_utc) if observation else None,
         "native_updated_at": _iso(observation.native_updated_at_utc) if observation else None,
         "source_map": {
-            "forecast": "energy_platform.async_get_solar_forecast_or_forecast_entity",
+            "forecast": forecast_source,
             "native_config_entry": native_read.binding.native_entry_id,
             "forecast_entity": native_read.binding.forecast_entity_id,
             "actual_power": native_read.binding.actual_power_entity,

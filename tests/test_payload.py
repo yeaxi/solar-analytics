@@ -106,6 +106,7 @@ class _Observation:
     observation_sequence: int
     payload_sha256: str | None
     model: _Model
+    update_time_source: str = "native_listener"
 
 
 @dataclass(frozen=True)
@@ -203,6 +204,64 @@ def test_ready_payload_classifies_as_ready(payload_module) -> None:
     assert result["daily_points"][0][0] == "2026-08-11"
     assert result["source_map"]["actual_power"] == "sensor.example_pv_power"
     assert result["insight"]["forecast_accuracy"]["accuracy_ready"] is True
+
+
+def test_provenance_reflects_energy_platform_source(payload_module) -> None:
+    inputs = _ready_inputs()
+    result = payload_module.build_payload(**inputs)
+    assert result["source_map"]["forecast"] == "energy_dashboard_solar_forecast_platform"
+    assert (
+        result["native_forecast_contract"]["native_update_time_source"] == "native_listener"
+    )
+
+
+def test_provenance_reflects_energy_helper_payload_source(payload_module) -> None:
+    inputs = _ready_inputs()
+    read = inputs["native_read"]
+    inputs["native_read"] = _NativeRead(
+        status="ok",
+        binding=read.binding,
+        model=read.model,
+        observation=_Observation(
+            profile=read.observation.profile,
+            observed_at_utc=read.observation.observed_at_utc,
+            native_updated_at_utc=read.observation.native_updated_at_utc,
+            observation_sequence=read.observation.observation_sequence,
+            payload_sha256=read.observation.payload_sha256,
+            model=read.observation.model,
+            update_time_source="energy_helper_payload",
+        ),
+    )
+    result = payload_module.build_payload(**inputs)
+    assert (
+        result["native_forecast_contract"]["native_update_time_source"] == "energy_helper_payload"
+    )
+
+
+def test_provenance_reflects_forecast_entity_source(payload_module) -> None:
+    inputs = _ready_inputs()
+    read = inputs["native_read"]
+    entity_binding = _Binding(native_entry_id=None, forecast_entity_id="sensor.my_forecast")
+    inputs["native_read"] = _NativeRead(
+        status="ok",
+        binding=entity_binding,
+        model=read.model,
+        observation=_Observation(
+            profile=read.observation.profile,
+            observed_at_utc=read.observation.observed_at_utc,
+            native_updated_at_utc=read.observation.native_updated_at_utc,
+            observation_sequence=read.observation.observation_sequence,
+            payload_sha256=read.observation.payload_sha256,
+            model=read.observation.model,
+            update_time_source="forecast_entity_state",
+        ),
+    )
+    result = payload_module.build_payload(**inputs)
+    assert result["source_map"]["forecast"] == "forecast_entity_state"
+    assert result["source_map"]["forecast_entity"] == "sensor.my_forecast"
+    assert (
+        result["native_forecast_contract"]["native_update_time_source"] == "forecast_entity_state"
+    )
 
 
 def test_native_source_unavailable_shadows_actual_state(payload_module) -> None:
