@@ -90,31 +90,35 @@
       }
     },
     "binding_changed": {
-      "title": "Energy dashboard Forecast.Solar entry changed",
+      "title": "Energy dashboard forecast entry changed",
       "fix_flow": {
         "step": {
           "confirm": {
-            "title": "Confirm the new Forecast.Solar entry",
-            "description": "The Home Assistant Energy dashboard now points at a different Forecast.Solar config entry ({reason}). Open Settings \u2192 Devices & Services \u2192 Solar Analytics \u2192 Reconfigure to accept the new entry (or keep the previous one explicitly), then acknowledge here."
+            "title": "Confirm the new forecast entry",
+            "description": "The Home Assistant Energy dashboard now points at a different solar-forecast config entry ({reason}). Open Settings \u2192 Devices & Services \u2192 Solar Analytics \u2192 Reconfigure to accept the new entry (or keep the previous one explicitly), then acknowledge here."
           }
         }
       }
     },
     "binding_unavailable": {
       "title": "Solar Analytics has no Energy dashboard solar source",
-      "description": "The Home Assistant Energy dashboard does not have a solar source configured. Add one in Settings \u2192 Dashboards \u2192 Energy, or reconfigure Solar Analytics to point at a specific Forecast.Solar config entry."
+      "description": "The Home Assistant Energy dashboard does not have a solar source configured. Add one in Settings \u2192 Dashboards \u2192 Energy, or reconfigure Solar Analytics to point at a specific solar-forecast config entry (Forecast.Solar, Solcast, ...)."
     },
     "binding_ambiguous": {
-      "title": "Solar Analytics cannot pick a single Forecast.Solar source",
-      "description": "The Home Assistant Energy dashboard has zero or more than one solar source, or the selected source references zero or more than one Forecast.Solar config entry ({reason}). Fix the Energy dashboard configuration, or reconfigure Solar Analytics to pin a specific Forecast.Solar entry."
+      "title": "Solar Analytics cannot pick a single solar-forecast source",
+      "description": "The Home Assistant Energy dashboard has zero or more than one solar source, or the selected source references zero or more than one solar-forecast config entry ({reason}). Fix the Energy dashboard configuration, or reconfigure Solar Analytics to pin a specific forecast entry."
     },
     "native_entry_unavailable": {
-      "title": "Forecast.Solar config entry is not loaded",
-      "description": "The Forecast.Solar config entry Solar Analytics is bound to is unavailable ({reason}). Ensure the Forecast.Solar integration is installed and loaded, then reload Solar Analytics."
+      "title": "Forecast config entry is not loaded",
+      "description": "The solar-forecast config entry Solar Analytics is bound to is unavailable ({reason}). Ensure the forecast integration (Forecast.Solar, Solcast, ...) is installed and loaded, then reload Solar Analytics."
     },
     "unsupported_native_contract": {
-      "title": "Home Assistant Forecast.Solar contract is not supported",
-      "description": "Solar Analytics could not read the native Forecast.Solar profile from this Home Assistant version ({reason}). Upgrade Home Assistant to a supported release, or file an issue with the diagnostics attached."
+      "title": "Home Assistant solar-forecast contract is not supported",
+      "description": "Solar Analytics could not read the Energy Dashboard solar-forecast profile from this Home Assistant version or provider ({reason}). Upgrade Home Assistant to a supported release, or file an issue with the diagnostics attached."
+    },
+    "unsupported_forecast_entity_contract": {
+      "title": "Forecast entity does not expose a usable profile",
+      "description": "The forecast entity Solar Analytics is bound to does not expose a timestamped Wh-per-period profile, or declares a non-Wh unit ({reason}). Choose an entity whose attributes provide a wh_hours/wh_period/watt_hours_period map keyed by period-end timestamp in Wh, then reload Solar Analytics."
     }
   },
   "entity": {
