@@ -116,7 +116,12 @@ def test_manifest_declares_dependencies_and_platinum_scale() -> None:
 
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert "energy" in manifest["dependencies"]
-    assert "forecast_solar" in manifest["dependencies"]
+    # Forecast.Solar is only one of several possible forecast providers, so it
+    # is an ordering hint (``after_dependencies``) rather than a hard
+    # dependency; the integration must load for Solcast/entity users who never
+    # configure Forecast.Solar.
+    assert "forecast_solar" not in manifest["dependencies"]
+    assert "forecast_solar" in manifest["after_dependencies"]
     # Recorder is default-enabled, so it is an ordering hint rather than a hard
     # dependency: the integration still loads (and says so) without it.
     assert "recorder" in manifest["after_dependencies"]
