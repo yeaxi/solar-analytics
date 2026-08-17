@@ -26,7 +26,7 @@ Use `PASS`, `FIX_REQUIRED`, `BLOCKED`, or `PARTIAL`; do not infer success from m
 
 ## Read-only soak checkpoint
 
-The soak checkpoint validator (`tools/pv_soak_checkpoint.py`) is a local deterministic analyzer. It performs no SSH, network, Home Assistant, provider, or SQLite access itself. Its allowlisted entity set is fixed (the Solar Analytics status/profile entities plus the two actual-PV entities the user configured; the tool takes the entity IDs from the collector envelope). A malformed, stale, incomplete, digest-mismatched, or non-zero-write envelope is `BLOCKED`; never repair it by collecting broader state or retrying a mutation.
+The soak checkpoint validator (`tools/pv_soak_checkpoint.py`) is a local deterministic analyzer. It performs no SSH, network, Home Assistant, provider, or SQLite access itself. Its allowlisted entity set is fixed (the Solar Analytics status/profile entities plus the two actual-PV entities the user configured; the tool takes the entity IDs from the collector envelope). The envelope must declare its bound `forecast_source_type` (`energy_entry` with a `provider_domain`, or `forecast_entity`); the required fresh log streams follow that source (`solar_analytics` plus the provider domain for an Energy entry, `solar_analytics` alone for a forecast entity), so a Solcast or forecast-entity soak cannot pass on a Forecast.Solar-only log allowlist. The soak window (`collected_at_utc − baseline_utc`) must be at least 24 hours — a full daily analytics cadence — so an instantaneous baseline cannot pass. A malformed, stale, incomplete, digest-mismatched, short-window, or non-zero-write envelope is `BLOCKED`; never repair it by collecting broader state or retrying a mutation.
 
 The three stages of a soak run must stay separated:
 
