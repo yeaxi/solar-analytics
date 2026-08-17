@@ -287,8 +287,12 @@ def extract_forecast_entity_wh_hours(attributes: Mapping[str, Any]) -> dict[str,
     because the accuracy pipeline needs a timestamped energy profile and never
     fabricates one from an instantaneous value. Recognized attribute names are
     ``wh_hours``, ``wh_period`` and ``watt_hours_period``, each a mapping of ISO
-    period-end timestamp to Wh. The mapping is handed to
+    period-end timestamp to Wh (the same shape Home Assistant's Energy
+    Dashboard uses; values are energy for the period ending at the key, not a
+    cumulative running total). The mapping is handed to
     :func:`normalize_native_wh_hours`, which fails closed on malformed cells.
+    The caller additionally rejects a non-Wh ``unit_of_measurement`` rather than
+    converting, since the profile keys carry no unit of their own.
     """
 
     if not isinstance(attributes, Mapping):

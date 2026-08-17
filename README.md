@@ -9,7 +9,7 @@ It does not control devices, send notifications, or call services.
 - Home Assistant Core 2026.7 or newer
 - A solar forecast source, one of:
   - An Energy dashboard solar-forecast integration (Forecast.Solar, Solcast, ...). With exactly one Energy dashboard solar source it is auto-detected.
-  - A forecast entity whose attributes expose a timestamped Wh-per-period map (`wh_hours`, `wh_period`, or `watt_hours_period`).
+  - A forecast entity whose attributes expose a timestamped Wh-per-period map (`wh_hours`, `wh_period`, or `watt_hours_period`), keyed by period-end timestamp with values in Wh (a declared unit must be Wh).
 - A PV power sensor (`device_class: power`, unit `W` or `kW`)
 - A PV energy counter (`device_class: energy`, unit `Wh` or `kWh`)
 
@@ -97,7 +97,7 @@ Check `sensor.solar_analytics_analysis_status`. Solar Analytics reports a status
 | `native_source_unavailable` | The forecast source has not produced a profile | Check that the forecast integration or entity is loaded |
 | `native_source_stale` | Last forecast update is older than 2 hours | Check the forecast source |
 | `unsupported_native_contract` | Home Assistant is too old, or the provider's forecast contract changed | Upgrade Home Assistant, or file a bug |
-| `unsupported_forecast_entity_contract` | The chosen forecast entity exposes no timestamped Wh-per-period profile | Pick an entity with a `wh_hours`/`wh_period`/`watt_hours_period` attribute |
+| `unsupported_forecast_entity_contract` | The chosen forecast entity exposes no timestamped Wh-per-period profile, or declares a non-Wh unit (kWh/kW/W) | Pick an entity with a `wh_hours`/`wh_period`/`watt_hours_period` attribute keyed by period-end timestamp, in Wh |
 | `actual_source_stale` or `actual_source_unavailable` | PV sensor missing, unavailable, or older than 15 minutes | Fix the sensor |
 | `binding_ambiguous` or `binding_unavailable` | Energy dashboard has zero or more than one solar source | Fix the Energy dashboard, or pick sensors in Reconfigure |
 | `canonical_actual_mismatch` | Override sensors are wrong | Reconfigure with valid power and energy sensors |

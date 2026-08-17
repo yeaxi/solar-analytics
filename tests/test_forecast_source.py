@@ -141,6 +141,49 @@ def test_entity_provider_fails_closed_on_scalar_only_entity() -> None:
     assert read.reason == "no_timestamped_profile"
 
 
+def test_entity_provider_rejects_non_wh_unit() -> None:
+    """A kWh map would be 1000x too small; fail closed rather than convert."""
+
+    state = FakeState(
+        "on",
+        {
+            "wh_hours": {
+                "2026-08-03T00:00:00+00:00": 0,
+                "2026-08-03T01:00:00+00:00": 1,
+                "2026-08-03T02:00:00+00:00": 2,
+            },
+            "unit_of_measurement": "kWh",
+        },
+        datetime.now(UTC),
+    )
+    provider = _provider({"sensor.my_forecast": state})
+    read = asyncio.run(provider.async_capture())
+    assert read.status == "unsupported_forecast_entity_contract"
+    assert read.reason == "non_wh_unit:kWh"
+
+
+def test_entity_provider_accepts_unspecified_unit_as_wh() -> None:
+    """A map with no unit is accepted (treated as Wh); the unit is unspecified."""
+
+    now = datetime.now(UTC)
+    state = FakeState(
+        "on",
+        {
+            "wh_hours": {
+                "2026-08-03T00:00:00+00:00": 0,
+                "2026-08-03T01:00:00+00:00": 100,
+                "2026-08-03T02:00:00+00:00": 200,
+            }
+        },
+        now,
+    )
+    provider = _provider({"sensor.my_forecast": state})
+    read = asyncio.run(provider.async_capture())
+    assert read.status == "ok"
+    assert read.observation is not None
+    assert read.observation.profile.valid_periods[0].energy_wh == 100
+
+
 def test_entity_provider_marks_stale_profile() -> None:
     stale = datetime.now(UTC) - timedelta(hours=3)
     state = FakeState(

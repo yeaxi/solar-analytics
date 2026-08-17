@@ -19,7 +19,7 @@
           "actual_energy_today_entity": "The daily PV energy counter (device_class=energy, state_class=total or total_increasing, unit kWh or Wh). Leave blank to auto-detect.",
           "forecast_source_type": "Where the forecast profile comes from. 'Energy Dashboard solar-forecast integration' observes a provider such as Forecast.Solar or Solcast; 'Forecast entity' reads a timestamped profile from a chosen entity.",
           "native_forecast_entry_id": "Which Energy Dashboard solar-forecast config entry to bind to (Forecast.Solar, Solcast, ...). Leave blank to auto-detect from the Energy Dashboard's solar source. Used only when the source type is the Energy Dashboard integration.",
-          "forecast_entity_id": "The forecast entity to read. Its attributes must expose a timestamped Wh-per-period map (wh_hours, wh_period, or watt_hours_period). Used only when the source type is 'Forecast entity'.",
+          "forecast_entity_id": "The forecast entity to read. Its attributes must expose a timestamped Wh-per-period map (wh_hours, wh_period, or watt_hours_period), keyed by period-end ISO timestamp with values in Wh. If the entity declares a unit, it must be Wh; a kWh/kW/W entity is rejected rather than converted. Used only when the source type is 'Forecast entity'.",
           "time_zone": "The timezone used for the morning and day-ahead snapshot boundaries and for daily accuracy roll-ups. Defaults to Home Assistant's timezone.",
           "morning_snapshot_hour": "Local hour at which the morning-baseline snapshot is taken the day before the target day. Defaults to 06:00.",
           "day_ahead_snapshot_hour": "Local hour at which the day-ahead diagnostic snapshot is taken. Defaults to 23:00."

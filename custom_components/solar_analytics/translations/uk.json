@@ -19,7 +19,7 @@
           "actual_energy_today_entity": "Лічильник PV-енергії за день (device_class=energy, state_class=total або total_increasing, kWh або Wh). Залиште порожнім для автовизначення.",
           "forecast_source_type": "Звідки береться профіль прогнозу. 'Інтеграція solar-forecast з Energy Dashboard' спостерігає за провайдером (Forecast.Solar, Solcast); 'Сенсор прогнозу' читає timestamped-профіль з обраного сенсора.",
           "native_forecast_entry_id": "Який solar-forecast config entry з Energy Dashboard використовувати (Forecast.Solar, Solcast, ...). Залиште порожнім для автовизначення з solar source в Energy Dashboard. Використовується лише коли тип джерела — інтеграція Energy Dashboard.",
-          "forecast_entity_id": "Сенсор прогнозу для читання. Його атрибути мають містити timestamped Wh-per-period map (wh_hours, wh_period або watt_hours_period). Використовується лише коли тип джерела — 'Сенсор прогнозу'.",
+          "forecast_entity_id": "Сенсор прогнозу для читання. Його атрибути мають містити timestamped Wh-per-period map (wh_hours, wh_period або watt_hours_period), з ключами за ISO-часом кінця періоду та значеннями у Wh. Якщо сенсор оголошує одиницю, вона має бути Wh; сенсор у kWh/kW/W відхиляється, а не конвертується. Використовується лише коли тип джерела — 'Сенсор прогнозу'.",
           "time_zone": "Часовий пояс для меж snapshot-ів та щоденних результатів. За замовчуванням — часовий пояс Home Assistant.",
           "morning_snapshot_hour": "Локальна година, коли робиться morning-baseline snapshot напередодні цільового дня. За замовчуванням 06:00.",
           "day_ahead_snapshot_hour": "Локальна година day-ahead diagnostic snapshot. За замовчуванням 23:00."
