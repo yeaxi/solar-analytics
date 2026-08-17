@@ -28,6 +28,21 @@ _DROPPED_BACKFILL_TABLES = (
 )
 
 
+def _format_lineage_source_key(source_kind: str | None, source_id: str | None) -> str:
+    """Stable identity string for a lineage's forecast source.
+
+    Independent of the model fingerprint and versions, so it can be compared
+    against the configured binding without an admissible observation.
+    """
+
+    return f"{source_kind or ''}|{source_id or ''}"
+
+
+def _lineage_source_key(metadata: Mapping[str, Any]) -> str:
+    source_id = metadata.get("native_entry_id") or metadata.get("forecast_entity_id") or ""
+    return _format_lineage_source_key(str(metadata.get("source_kind") or ""), str(source_id))
+
+
 class StorageError(RuntimeError):
     """A storage failure that must keep analytics fail-closed."""
 
@@ -350,11 +365,29 @@ class SolarAnalyticsV2Store:
             )
         self.set_runtime("current_lineage_id", lineage_id)
         self.set_runtime("current_lineage_key", contract_key)
+        self.set_runtime("current_lineage_source", _lineage_source_key(metadata))
         return lineage_id
 
-    def current_lineage_id(self) -> str | None:
+    def current_lineage_id(
+        self, *, source_kind: str | None = None, source_id: str | None = None
+    ) -> str | None:
+        """Return the current lineage id.
+
+        When ``source_kind``/``source_id`` are given, the current lineage is
+        returned only if it was created for that same source. This prevents a
+        newly reconfigured source (a different forecast provider or entity) from
+        continuing to write intervals and accuracy onto the previous source's
+        lineage while it has not yet produced an admissible observation.
+        """
+
         value = self.get_runtime("current_lineage_id")
-        return str(value) if value else None
+        if not value:
+            return None
+        if source_kind is not None or source_id is not None:
+            stored = self.get_runtime("current_lineage_source")
+            if stored != _format_lineage_source_key(source_kind, source_id):
+                return None
+        return str(value)
 
     def ensure_snapshot_slot(
         self,

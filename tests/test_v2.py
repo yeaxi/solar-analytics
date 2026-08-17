@@ -466,6 +466,62 @@ def test_v2_storage_lineage_a_to_b_to_a_is_three_epochs(tmp_path) -> None:
     assert store.current_lineage_id() == a2
 
 
+def test_v2_current_lineage_id_is_scoped_to_configured_source(tmp_path) -> None:
+    """A reconfigured source must not inherit the previous source's lineage."""
+
+    store = SolarAnalyticsV2Store(tmp_path / "lineage_source.sqlite")
+    store.initialize()
+    now = datetime(2026, 8, 3, tzinfo=UTC)
+    native_metadata = {
+        "source_kind": "native",
+        "native_entry_id": "entry-x",
+        "forecast_entity_id": None,
+        "model_fingerprint": "f",
+        "actual_energy_entity": ENERGY_ENTITY,
+        "actual_power_entity": POWER_ENTITY,
+        "adapter_version": "2",
+        "native_contract_version": "n",
+    }
+    native_id = store.ensure_lineage(contract_key="NATIVE", metadata=native_metadata, now=now)
+
+    # No-arg reuse is unchanged.
+    assert store.current_lineage_id() == native_id
+    # Same source reuses the lineage.
+    assert (
+        store.current_lineage_id(source_kind="native", source_id="entry-x") == native_id
+    )
+    # A different Energy entry does not inherit the lineage.
+    assert store.current_lineage_id(source_kind="native", source_id="entry-y") is None
+    # Switching to a forecast entity does not inherit the lineage either.
+    assert (
+        store.current_lineage_id(source_kind="forecast_entity", source_id="sensor.f")
+        is None
+    )
+
+    # Once the entity source produces its own lineage, it is reused for itself
+    # and the old native source no longer matches.
+    entity_metadata = {
+        "source_kind": "forecast_entity",
+        "native_entry_id": "",
+        "forecast_entity_id": "sensor.f",
+        "model_fingerprint": "g",
+        "actual_energy_entity": ENERGY_ENTITY,
+        "actual_power_entity": POWER_ENTITY,
+        "adapter_version": "2",
+        "native_contract_version": "n",
+    }
+    entity_id = store.ensure_lineage(
+        contract_key="ENTITY", metadata=entity_metadata, now=now + timedelta(minutes=1)
+    )
+    assert entity_id != native_id
+    assert (
+        store.current_lineage_id(source_kind="forecast_entity", source_id="sensor.f")
+        == entity_id
+    )
+    assert store.current_lineage_id(source_kind="native", source_id="entry-x") is None
+    store.close()
+
+
 def _import_rows(*pairs: tuple[str, float]) -> list[dict[str, object]]:
     return [
         {

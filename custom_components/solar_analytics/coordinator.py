@@ -582,7 +582,15 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 },
             )
         if lineage_id is None:
-            lineage_id = self.store.current_lineage_id()
+            # No admissible observation this cycle. Reuse the current lineage
+            # only if it belongs to the configured source; a reconfigured
+            # source must not continue writing onto the previous source's
+            # lineage until it has produced its own observation.
+            binding = self.native_adapter.binding
+            source_id = binding.native_entry_id or binding.forecast_entity_id or ""
+            lineage_id = self.store.current_lineage_id(
+                source_kind=self.source_kind, source_id=source_id
+            )
         self.store.add_power_sample(
             actual_power.observed_at_utc or now_utc,
             actual_power.value if actual_power.valid else None,
