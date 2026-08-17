@@ -167,10 +167,12 @@ def build_generic_model_fingerprint(values: Mapping[str, Any]) -> str | None:
 
     Forecast providers other than Forecast.Solar do not expose the plane
     geometry :func:`build_native_model_fingerprint` needs. Their model identity
-    is instead the JSON-canonical set of scalar, non-secret values that shape
-    the forecast (config-entry data/options for an Energy provider, or the
-    entity id and unit for a forecast entity). Secret-like keys never enter the
-    digest so a rotated token does not silently start a new lineage.
+    is instead a small, stable JSON-canonical set of scalar values that name the
+    bound source: the provider domain and config-entry id for an Energy
+    provider, or the entity id and unit for a forecast entity. Provider config
+    is never fingerprinted, so neither a rotated credential nor a toggled
+    display option starts a new lineage. Any secret-like key that reaches this
+    function is still dropped as defense-in-depth.
     """
 
     if values.get("status") != "ok":

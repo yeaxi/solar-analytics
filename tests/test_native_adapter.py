@@ -759,8 +759,20 @@ def test_native_adapter_generalizes_to_non_forecast_solar_provider() -> None:
     assert result.observation.profile.valid_periods[0].energy_wh == 100
     fingerprint = result.observation.model.fingerprint
     assert isinstance(fingerprint, str) and fingerprint.startswith("sha256:")
-    serialized = repr(result.observation.model.values)
-    assert "api_key" not in serialized and "SECRET" not in serialized
+    # The model identity is the bound source (domain + entry id) and the
+    # digest only. No provider config -- secret or otherwise -- is published.
+    values = result.observation.model.values
+    assert set(values) == {
+        "status",
+        "provider_domain",
+        "provider_entry_id",
+        "model_fingerprint_sha256",
+    }
+    assert values["provider_domain"] == "solcast_solar"
+    assert values["provider_entry_id"] == "native-1"
+    serialized = repr(values)
+    for leaked in ("api_key", "SECRET", "resource_id", "abc-123", "hard_limit"):
+        assert leaked not in serialized
     assert isinstance(adapter, module.ForecastProfileProvider)
     assert module.EnergyForecastProvider is module.ForecastSolarNativeAdapter
 
