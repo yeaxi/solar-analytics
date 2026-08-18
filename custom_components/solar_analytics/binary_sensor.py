@@ -125,7 +125,7 @@ class SolarAnalyticsBinarySensor(CoordinatorEntity[SolarAnalyticsCoordinator], B
             identifiers={(DOMAIN, "solar_analytics")},
             name=NAME,
             manufacturer=MANUFACTURER,
-            model="Native Forecast.Solar period analytics",
+            model="Forecast period analytics",
             sw_version=VERSION,
         )
 
