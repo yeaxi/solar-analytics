@@ -814,9 +814,9 @@ def test_native_adapter_admits_non_forecast_solar_without_listener() -> None:
         }
 
     _install_fake_ha(helper)
-    sys.modules["homeassistant.components.energy.websocket_api"]._platforms[
-        "solcast_solar"
-    ] = helper
+    sys.modules["homeassistant.components.energy.websocket_api"]._platforms["solcast_solar"] = (
+        helper
+    )
     module = importlib.import_module("custom_components.solar_analytics.native_adapter")
     native_entry = BareSolcastEntry()
     manager = types.SimpleNamespace(
@@ -857,9 +857,9 @@ def test_native_adapter_rejects_non_forecast_solar_explicit_coordinator_failure(
         return {"wh_hours": {"2026-08-03T01:00:00+00:00": 1}}
 
     _install_fake_ha(helper)
-    sys.modules["homeassistant.components.energy.websocket_api"]._platforms[
-        "solcast_solar"
-    ] = helper
+    sys.modules["homeassistant.components.energy.websocket_api"]._platforms["solcast_solar"] = (
+        helper
+    )
     module = importlib.import_module("custom_components.solar_analytics.native_adapter")
     native_entry = FakeSolcastEntry()
     native_entry.runtime_data.last_update_success = False
