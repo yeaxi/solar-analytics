@@ -43,7 +43,7 @@
     "error": {
       "invalid_actual_power_entity": "Обраний сенсор не схожий на PV power (device_class=power, W або kW).",
       "invalid_actual_energy_entity": "Обраний сенсор не схожий на PV energy counter (device_class=energy, kWh або Wh).",
-      "invalid_native_forecast_entry": "Обраний config entry прогнозу не існує.",
+      "invalid_native_forecast_entry": "Обраний config entry не надає прогноз сонячної генерації для Energy Dashboard. Оберіть entry інтеграції Forecast.Solar, Solcast або іншого постачальника прогнозу.",
       "invalid_forecast_source_type": "Оберіть валідний тип джерела прогнозу.",
       "invalid_forecast_entity": "Оберіть наявний сенсор прогнозу, коли тип джерела — 'Сенсор прогнозу'.",
       "invalid_snapshot_hour": "Година snapshot має бути цілим числом від 0 до 23.",
@@ -61,6 +61,14 @@
         "title": "Опції Solar Analytics",
         "description": "Mutable thresholds відсутні. Зміна форми моделі або часу snapshot стартує нову lineage; історія попередніх lineage зберігається.",
         "data": {}
+      }
+    }
+  },
+  "selector": {
+    "forecast_source_type": {
+      "options": {
+        "energy_entry": "Інтеграція прогнозу сонячної генерації Energy Dashboard",
+        "forecast_entity": "Сутність прогнозу"
       }
     }
   },

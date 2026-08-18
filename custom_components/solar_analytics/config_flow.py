@@ -13,6 +13,7 @@ inspects Home Assistant state and the Energy Dashboard configuration.
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -30,7 +31,6 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
-    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -66,7 +66,7 @@ def _user_schema(hass: HomeAssistant, defaults: Mapping[str, Any] | None) -> vol
     """Build the shared schema used by both the user and reconfigure steps.
 
     All selectors are optional. Leaving the two entity selectors and the
-    Forecast.Solar entry selector blank triggers auto-detection from the
+    forecast config-entry selector blank triggers auto-detection from the
     Energy Dashboard; providing them locks Solar Analytics to specific
     inputs even if the Energy Dashboard changes later.
     """
@@ -99,23 +99,22 @@ def _user_schema(hass: HomeAssistant, defaults: Mapping[str, Any] | None) -> vol
     schema[vol.Optional(CONF_FORECAST_SOURCE_TYPE, default=source_type_default)] = SelectSelector(
         SelectSelectorConfig(
             mode=SelectSelectorMode.DROPDOWN,
-            options=[
-                SelectOptionDict(
-                    value=FORECAST_SOURCE_ENERGY_ENTRY,
-                    label="Energy Dashboard solar-forecast integration",
-                ),
-                SelectOptionDict(value=FORECAST_SOURCE_ENTITY, label="Forecast entity"),
-            ],
+            translation_key="forecast_source_type",
+            options=[FORECAST_SOURCE_ENERGY_ENTRY, FORECAST_SOURCE_ENTITY],
         )
     )
 
+    # No ``integration=`` filter: any integration that feeds the Energy
+    # Dashboard solar forecast (Forecast.Solar, Solcast, ...) must be
+    # selectable. The chosen entry's domain is validated server-side against
+    # the Energy platform registry in ``_validate_native_entry``.
     if default_native_entry := defaults.get(CONF_NATIVE_FORECAST_ENTRY_ID):
         schema[vol.Optional(CONF_NATIVE_FORECAST_ENTRY_ID, default=default_native_entry)] = (
-            ConfigEntrySelector(ConfigEntrySelectorConfig(integration="forecast_solar"))
+            ConfigEntrySelector(ConfigEntrySelectorConfig())
         )
     else:
         schema[vol.Optional(CONF_NATIVE_FORECAST_ENTRY_ID)] = ConfigEntrySelector(
-            ConfigEntrySelectorConfig(integration="forecast_solar")
+            ConfigEntrySelectorConfig()
         )
 
     if default_forecast_entity := defaults.get(CONF_FORECAST_ENTITY_ID):
@@ -189,18 +188,48 @@ def _validate_energy_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
     return attrs.get("unit_of_measurement") in _ENERGY_UNITS
 
 
-def _validate_native_entry(hass: HomeAssistant, entry_id: str | None) -> bool:
-    """Return ``True`` iff the forecast config entry exists.
+async def _energy_forecast_domains(hass: HomeAssistant) -> set[str] | None:
+    """Return the domains that provide the Energy solar-forecast platform.
+
+    Resolved through the same registry the Energy Dashboard uses, so it covers
+    both core integrations and custom components. Returns ``None`` when the
+    registry cannot be resolved, so the caller can fail open on validation (the
+    read-only runtime adapter still fails closed on an unusable source).
+    """
+
+    try:
+        websocket_api = await hass.async_add_executor_job(
+            importlib.import_module,
+            "homeassistant.components.energy.websocket_api",
+        )
+        platforms = await websocket_api.async_get_energy_platforms(hass)
+    except Exception as err:  # pragma: no cover - platform discovery boundary
+        _LOGGER.debug("Energy platform discovery failed during config flow: %s", err)
+        return None
+    if not isinstance(platforms, Mapping):
+        return None
+    return set(platforms)
+
+
+async def _validate_native_entry(hass: HomeAssistant, entry_id: str | None) -> bool:
+    """Return ``True`` iff the chosen entry can serve an Energy solar forecast.
 
     Any integration that feeds the Energy Dashboard solar forecast is accepted
-    (Forecast.Solar, Solcast, ...); the runtime adapter resolves the provider
-    from the entry's own domain. Blank means auto-detect from the Energy
-    Dashboard.
+    (Forecast.Solar, Solcast, ...); the entry's domain must appear in the
+    Energy platform registry. Blank means auto-detect from the Energy
+    Dashboard. When the registry cannot be resolved we accept an existing
+    entry, since the runtime adapter still fails closed on an unusable source.
     """
 
     if not entry_id:
         return True
-    return hass.config_entries.async_get_entry(entry_id) is not None
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None:
+        return False
+    domains = await _energy_forecast_domains(hass)
+    if domains is None:
+        return True
+    return entry.domain in domains
 
 
 def _validate_forecast_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
@@ -237,7 +266,7 @@ async def _validate_user_input(
         cleaned[CONF_ACTUAL_ENERGY_TODAY] = actual_energy
 
     native_entry = user_input.get(CONF_NATIVE_FORECAST_ENTRY_ID) or None
-    if not _validate_native_entry(hass, native_entry):
+    if not await _validate_native_entry(hass, native_entry):
         errors[CONF_NATIVE_FORECAST_ENTRY_ID] = "invalid_native_forecast_entry"
     elif native_entry:
         cleaned[CONF_NATIVE_FORECAST_ENTRY_ID] = native_entry
