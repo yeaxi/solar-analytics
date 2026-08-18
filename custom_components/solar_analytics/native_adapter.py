@@ -408,7 +408,7 @@ class ForecastSolarNativeAdapter:
                 "homeassistant.components.energy.websocket_api",
             )
             get_platforms = websocket_api.async_get_energy_platforms
-        except (ImportError, AttributeError):
+        except ImportError, AttributeError:
             return None
         try:
             platforms = await get_platforms(self.hass)

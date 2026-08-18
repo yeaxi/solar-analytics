@@ -726,9 +726,9 @@ def test_native_adapter_generalizes_to_non_forecast_solar_provider() -> None:
     _install_fake_ha(helper)
     # Solcast is a custom component: it is reachable only through the Energy
     # Dashboard platform registry, never as ``homeassistant.components.*``.
-    sys.modules["homeassistant.components.energy.websocket_api"]._platforms[
-        "solcast_solar"
-    ] = helper
+    sys.modules["homeassistant.components.energy.websocket_api"]._platforms["solcast_solar"] = (
+        helper
+    )
     module = importlib.import_module("custom_components.solar_analytics.native_adapter")
     native_entry = FakeSolcastEntry()
     manager = types.SimpleNamespace(
