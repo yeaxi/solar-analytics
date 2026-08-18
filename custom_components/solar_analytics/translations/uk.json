@@ -90,31 +90,35 @@
       }
     },
     "binding_changed": {
-      "title": "Config entry Forecast.Solar в Energy dashboard змінено",
+      "title": "Config entry прогнозу в Energy dashboard змінено",
       "fix_flow": {
         "step": {
           "confirm": {
-            "title": "Підтвердити новий Forecast.Solar entry",
-            "description": "Energy dashboard тепер вказує на інший Forecast.Solar config entry ({reason}). Відкрийте Settings \u2192 Devices & Services \u2192 Solar Analytics \u2192 Reconfigure для прийняття нового entry (або залиште попередній) і підтвердьте тут."
+            "title": "Підтвердити новий entry прогнозу",
+            "description": "Energy dashboard тепер вказує на інший solar-forecast config entry ({reason}). Відкрийте Settings \u2192 Devices & Services \u2192 Solar Analytics \u2192 Reconfigure для прийняття нового entry (або залиште попередній) і підтвердьте тут."
           }
         }
       }
     },
     "binding_unavailable": {
       "title": "У Solar Analytics немає solar source в Energy dashboard",
-      "description": "Energy dashboard не має solar source. Додайте його в Settings \u2192 Dashboards \u2192 Energy або переналаштуйте Solar Analytics на конкретний Forecast.Solar entry."
+      "description": "Energy dashboard не має solar source. Додайте його в Settings \u2192 Dashboards \u2192 Energy або переналаштуйте Solar Analytics на конкретний solar-forecast entry (Forecast.Solar, Solcast, ...)."
     },
     "binding_ambiguous": {
-      "title": "Solar Analytics не може обрати один Forecast.Solar entry",
-      "description": "Energy dashboard має нуль або більше одного solar source, або обраний source посилається на нуль або більше одного Forecast.Solar config entry ({reason}). Виправте Energy dashboard або переналаштуйте Solar Analytics на конкретний entry."
+      "title": "Solar Analytics не може обрати один solar-forecast entry",
+      "description": "Energy dashboard має нуль або більше одного solar source, або обраний source посилається на нуль або більше одного solar-forecast config entry ({reason}). Виправте Energy dashboard або переналаштуйте Solar Analytics на конкретний entry."
     },
     "native_entry_unavailable": {
-      "title": "Forecast.Solar config entry не завантажено",
-      "description": "Forecast.Solar config entry, до якого прив’язаний Solar Analytics, недоступний ({reason}). Переконайтеся, що інтеграцію Forecast.Solar встановлено та завантажено, і перезавантажте Solar Analytics."
+      "title": "Config entry прогнозу не завантажено",
+      "description": "Solar-forecast config entry, до якого прив’язаний Solar Analytics, недоступний ({reason}). Переконайтеся, що інтеграцію прогнозу (Forecast.Solar, Solcast, ...) встановлено та завантажено, і перезавантажте Solar Analytics."
     },
     "unsupported_native_contract": {
-      "title": "Home Assistant Forecast.Solar contract не підтримується",
-      "description": "Solar Analytics не зміг прочитати native Forecast.Solar profile у цій версії Home Assistant ({reason}). Оновіть Home Assistant до підтримуваного релізу або відкрийте issue з прикріпленими diagnostics."
+      "title": "Home Assistant solar-forecast contract не підтримується",
+      "description": "Solar Analytics не зміг прочитати solar-forecast profile Energy Dashboard у цій версії Home Assistant або від цього постачальника ({reason}). Оновіть Home Assistant до підтримуваного релізу або відкрийте issue з прикріпленими diagnostics."
+    },
+    "unsupported_forecast_entity_contract": {
+      "title": "Сутність прогнозу не надає придатний профіль",
+      "description": "Сутність прогнозу, до якої прив’язаний Solar Analytics, не надає timestamped Wh-per-period профіль або оголошує не-Wh одиницю ({reason}). Оберіть сутність, атрибути якої містять map wh_hours/wh_period/watt_hours_period з ключами за часом кінця періоду у Wh, і перезавантажте Solar Analytics."
     }
   },
   "entity": {

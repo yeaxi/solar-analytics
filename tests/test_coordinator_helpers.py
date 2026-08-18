@@ -14,6 +14,13 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 
+def _read(binding_status="ok", binding_reason=None, status="ok", reason=None):
+    """Build a NativeRead-shaped object for repair/log helper coverage."""
+
+    binding = types.SimpleNamespace(status=binding_status, reason=binding_reason)
+    return types.SimpleNamespace(binding=binding, status=status, reason=reason)
+
+
 def test_next_local_hour_advances_to_today_when_hour_is_still_ahead(coordinator_module) -> None:
     tz = ZoneInfo("America/Los_Angeles")
     # 2026-08-11 03:30 in Los Angeles == 2026-08-11 10:30 UTC (PDT, UTC-7).
@@ -109,7 +116,7 @@ def test_maintain_repair_issues_creates_active_and_clears_the_rest(coordinator_m
 
     shell = types.SimpleNamespace(hass=object())
     coordinator_module.SolarAnalyticsCoordinator._maintain_repair_issues(
-        shell, "canonical_actual_mismatch", "reason:power_missing"
+        shell, _read(binding_status="canonical_actual_mismatch", binding_reason="power_missing")
     )
 
     assert len(created) == 1
@@ -124,7 +131,33 @@ def test_maintain_repair_issues_creates_active_and_clears_the_rest(coordinator_m
         "binding_changed",
         "native_entry_unavailable",
         "unsupported_native_contract",
+        "unsupported_forecast_entity_contract",
     }
+
+
+def test_maintain_repair_issues_uses_read_status_for_entity_contract(coordinator_module) -> None:
+    """A resolved binding whose capture fails the entity contract raises its issue."""
+
+    created: list[tuple[str, dict]] = []
+    deleted: list[str] = []
+    ir = sys.modules["homeassistant.helpers.issue_registry"]
+    ir.async_create_issue = lambda hass, domain, issue_id, **kwargs: created.append(
+        (issue_id, kwargs)
+    )
+    ir.async_delete_issue = lambda hass, domain, issue_id: deleted.append(issue_id)
+
+    shell = types.SimpleNamespace(hass=object())
+    coordinator_module.SolarAnalyticsCoordinator._maintain_repair_issues(
+        shell,
+        _read(status="unsupported_forecast_entity_contract", reason="non_wh_unit:kWh"),
+    )
+
+    assert len(created) == 1
+    issue_id, kwargs = created[0]
+    assert issue_id == "unsupported_forecast_entity_contract"
+    assert kwargs["is_fixable"] is False
+    assert kwargs["translation_placeholders"]["reason"] == "non_wh_unit:kWh"
+    assert "unsupported_forecast_entity_contract" not in deleted
 
 
 def test_maintain_repair_issues_marks_informational_issues_non_fixable(coordinator_module) -> None:
@@ -137,7 +170,7 @@ def test_maintain_repair_issues_marks_informational_issues_non_fixable(coordinat
 
     shell = types.SimpleNamespace(hass=object())
     coordinator_module.SolarAnalyticsCoordinator._maintain_repair_issues(
-        shell, "binding_ambiguous", "solar_source_count:0"
+        shell, _read(binding_status="binding_ambiguous", binding_reason="solar_source_count:0")
     )
 
     assert len(created) == 1
@@ -156,7 +189,7 @@ def test_maintain_repair_issues_clears_everything_on_healthy_binding(coordinator
     ir.async_delete_issue = lambda hass, domain, issue_id: deleted.append(issue_id)
 
     shell = types.SimpleNamespace(hass=object())
-    coordinator_module.SolarAnalyticsCoordinator._maintain_repair_issues(shell, "ok", None)
+    coordinator_module.SolarAnalyticsCoordinator._maintain_repair_issues(shell, _read())
 
     assert created == []
     assert set(deleted) == {
@@ -166,6 +199,7 @@ def test_maintain_repair_issues_clears_everything_on_healthy_binding(coordinator
         "binding_ambiguous",
         "native_entry_unavailable",
         "unsupported_native_contract",
+        "unsupported_forecast_entity_contract",
     }
 
 
@@ -179,10 +213,10 @@ def test_log_native_status_transition_logs_once_per_transition(coordinator_modul
     caplog.set_level(_logging.WARNING)
     caplog.clear()
     coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(
-        shell, "native_source_unavailable", "native_update_not_observed"
+        shell, _read(status="native_source_unavailable", reason="native_update_not_observed")
     )
     coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(
-        shell, "native_source_unavailable", "native_update_not_observed"
+        shell, _read(status="native_source_unavailable", reason="native_update_not_observed")
     )
     warnings = [r for r in caplog.records if r.levelno == _logging.WARNING]
     assert len(warnings) == 1
@@ -190,8 +224,8 @@ def test_log_native_status_transition_logs_once_per_transition(coordinator_modul
 
     caplog.set_level(_logging.INFO)
     caplog.clear()
-    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
-    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
+    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, _read())
+    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, _read())
     infos = [r for r in caplog.records if r.levelno == _logging.INFO]
     assert len(infos) == 1
     assert "recovered" in infos[0].message
@@ -207,5 +241,5 @@ def test_log_native_status_transition_stays_quiet_on_boot_when_healthy(
     shell = types.SimpleNamespace(_logged_native_status=None)
     caplog.set_level(_logging.INFO)
     caplog.clear()
-    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, "ok", None)
+    coordinator_module.SolarAnalyticsCoordinator._log_native_status_transition(shell, _read())
     assert caplog.records == []

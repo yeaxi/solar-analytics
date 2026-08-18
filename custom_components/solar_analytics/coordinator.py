@@ -87,8 +87,27 @@ _ISSUE_INFO = {
     "binding_ambiguous",
     "native_entry_unavailable",
     "unsupported_native_contract",
+    # A forecast-entity source whose attributes never expose a timestamped Wh
+    # profile: the most likely onboarding failure for entity users, surfaced so
+    # they get a Repairs row instead of a silently empty analysis.
+    "unsupported_forecast_entity_contract",
 }
 _MANAGED_ISSUE_IDS = _ISSUE_FIXABLE | _ISSUE_INFO
+
+
+def _effective_native_status(native_read: NativeRead) -> tuple[str, str | None]:
+    """Collapse binding and read status into one user-facing status.
+
+    A binding failure (no source resolved) takes precedence; otherwise a
+    capture-time read failure such as ``unsupported_forecast_entity_contract``
+    is what the user needs to see. When both are ``ok`` the status is ``ok``.
+    """
+
+    if native_read.binding.status != "ok":
+        return native_read.binding.status, native_read.binding.reason
+    if native_read.status != "ok":
+        return native_read.status, native_read.reason
+    return "ok", None
 
 
 def _build_forecast_provider(hass: HomeAssistant, entry: ConfigEntry) -> ForecastProfileProvider:
@@ -295,11 +314,16 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             rows=self.store.list_imported_actual_daily(source_entity_id=entity_id),
         )
 
-    def _maintain_repair_issues(self, binding_status: str, reason: str | None) -> None:
-        """Create or clear HA repair issues for user-actionable binding failures."""
+    def _maintain_repair_issues(self, native_read: NativeRead) -> None:
+        """Create or clear HA repair issues for user-actionable source failures.
 
+        Driven by the effective status, so a resolved binding whose capture
+        still fails the forecast-entity contract raises the right Repairs row.
+        """
+
+        status, reason = _effective_native_status(native_read)
         for issue_id in _MANAGED_ISSUE_IDS:
-            if issue_id == binding_status:
+            if issue_id == status:
                 ir.async_create_issue(
                     self.hass,
                     DOMAIN,
@@ -312,29 +336,31 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
-    def _log_native_status_transition(self, binding_status: str, reason: str | None) -> None:
-        """Log exactly once per binding-status transition.
+    def _log_native_status_transition(self, native_read: NativeRead) -> None:
+        """Log exactly once per forecast-source status transition.
 
         Prevents the 5-minute update loop from spamming the log while a
         recoverable failure (native_source_unavailable, native_source_stale)
-        persists. Emits a matching info-level line when the binding recovers
-        to 'ok'.
+        persists. Emits a matching info-level line when the source recovers
+        to 'ok'. Provider-neutral: it describes the configured forecast source,
+        not a specific integration.
         """
 
-        if binding_status == self._logged_native_status:
+        status, reason = _effective_native_status(native_read)
+        if status == self._logged_native_status:
             return
         previous = self._logged_native_status
-        self._logged_native_status = binding_status
-        if binding_status == "ok":
+        self._logged_native_status = status
+        if status == "ok":
             if previous is not None:
                 _LOGGER.info(
-                    "Solar Analytics native Forecast.Solar binding recovered from %s",
+                    "Solar Analytics forecast source binding recovered from %s",
                     previous,
                 )
         else:
             _LOGGER.warning(
-                "Solar Analytics native Forecast.Solar binding unavailable: %s (%s)",
-                binding_status,
+                "Solar Analytics forecast source unavailable: %s (%s)",
+                status,
                 reason or "no_reason",
             )
 
@@ -511,8 +537,8 @@ class SolarAnalyticsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = datetime.now(UTC)
         native_read = await self.native_adapter.async_capture()
         self._last_native_read = native_read
-        self._maintain_repair_issues(native_read.binding.status, native_read.binding.reason)
-        self._log_native_status_transition(native_read.binding.status, native_read.binding.reason)
+        self._maintain_repair_issues(native_read)
+        self._log_native_status_transition(native_read)
         power_entity = self.actual_power_entity or ""
         energy_entity = self.actual_energy_entity or ""
         power_state = (
