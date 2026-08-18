@@ -210,9 +210,7 @@ def test_provenance_reflects_energy_platform_source(payload_module) -> None:
     inputs = _ready_inputs()
     result = payload_module.build_payload(**inputs)
     assert result["source_map"]["forecast"] == "energy_dashboard_solar_forecast_platform"
-    assert (
-        result["native_forecast_contract"]["native_update_time_source"] == "native_listener"
-    )
+    assert result["native_forecast_contract"]["native_update_time_source"] == "native_listener"
 
 
 def test_provenance_reflects_energy_helper_payload_source(payload_module) -> None:

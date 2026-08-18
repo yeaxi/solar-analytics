@@ -77,9 +77,7 @@ def build_payload(
     # a fixed Forecast.Solar-listener assumption: the Energy listener, the Energy
     # helper payload, or the forecast entity's own state.
     update_time_source = (
-        getattr(observation, "update_time_source", "unknown")
-        if observation is not None
-        else "none"
+        getattr(observation, "update_time_source", "unknown") if observation is not None else "none"
     )
     binding = native_read.binding
     if binding.forecast_entity_id:
