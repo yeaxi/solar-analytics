@@ -117,6 +117,19 @@ class NativeRead:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
+class _Liveness:
+    """Outcome of a provider liveness check before the profile is fetched.
+
+    ``native_updated_at`` is set only when ``status == "ok"`` and is the
+    timestamp attributed to the source's most recent update.
+    """
+
+    status: str
+    reason: str | None = None
+    native_updated_at: datetime | None = None
+
+
 @runtime_checkable
 class ForecastProfileProvider(Protocol):
     """Provider-neutral contract the coordinator consumes.
@@ -517,6 +530,57 @@ class ForecastSolarNativeAdapter:
                 "unsupported_native_contract", {}, None, "native_entry_shape_invalid"
             )
 
+    def _forecast_solar_liveness(self, runtime: Any, now: datetime) -> _Liveness:
+        """Forecast.Solar's strict, unchanged liveness gate.
+
+        Requires the pinned coordinator runtime (``wh_period`` mapping),
+        ``last_update_success`` and an observed post-setup listener callback,
+        then a recency window. This preserves existing installs byte-for-byte.
+        """
+
+        if runtime is None:
+            return _Liveness("native_source_unavailable", "entry_unloaded")
+        runtime_data = getattr(runtime, "data", None)
+        wh_period = getattr(runtime_data, "wh_period", None)
+        if not isinstance(wh_period, Mapping):
+            return _Liveness("unsupported_native_contract", "runtime_wh_period_missing")
+        if getattr(runtime, "last_update_success", False) is not True:
+            return _Liveness("native_source_unavailable", "last_update_not_successful")
+        # Forecast.Solar's pinned coordinator is a plain DataUpdateCoordinator;
+        # last_update_success_time is not part of its contract. A retained
+        # runtime payload is not admissible until a native listener callback has
+        # been observed by this adapter after setup.
+        native_updated_at = self._native_listener_observed_at_utc
+        if native_updated_at is None:
+            return _Liveness("native_source_unavailable", "native_update_not_observed")
+        age = (now - native_updated_at).total_seconds()
+        if age < -300 or age > MAX_OBSERVATION_AGE.total_seconds():
+            return _Liveness("native_source_stale", f"native_update_age_seconds:{age:.1f}")
+        return _Liveness("ok", native_updated_at=native_updated_at)
+
+    def _provider_liveness(self, runtime: Any, now: datetime) -> _Liveness:
+        """Liveness for any non-Forecast.Solar Energy provider.
+
+        The Energy Dashboard helper returning a valid profile is the liveness
+        signal, so this never requires Forecast.Solar's runtime shape, its
+        listener, or ``last_update_success`` to exist. When the provider does
+        expose coordinator health it is honored opportunistically: an explicit
+        failure is rejected, but a missing attribute is not. The attributed
+        update time prefers an observed listener callback, then a provider
+        success timestamp, and otherwise the helper read time.
+        """
+
+        if runtime is not None and getattr(runtime, "last_update_success", None) is False:
+            return _Liveness("native_source_unavailable", "last_update_not_successful")
+        if self._native_listener_observed_at_utc is not None:
+            return _Liveness("ok", native_updated_at=self._native_listener_observed_at_utc)
+        success_time = (
+            self._parse_datetime(getattr(runtime, "last_update_success_time", None))
+            if runtime is not None
+            else None
+        )
+        return _Liveness("ok", native_updated_at=success_time or now)
+
     async def async_capture(self) -> NativeRead:
         """Capture a successful native observation already held by the coordinator."""
 
@@ -524,7 +588,7 @@ class ForecastSolarNativeAdapter:
         if not self.binding.ready:
             return NativeRead(self.binding.status, self.binding, reason=self.binding.reason)
         native_entry, runtime = self._native_entry_and_runtime()
-        if native_entry is None or runtime is None:
+        if native_entry is None:
             return NativeRead("native_source_unavailable", self.binding, reason="entry_unloaded")
         domain = str(getattr(native_entry, "domain", "") or "")
         helper = await self._async_get_helper(domain)
@@ -536,42 +600,21 @@ class ForecastSolarNativeAdapter:
         # to config-entry ordering. Retry listener attachment on every capture,
         # but never initiate a native refresh here.
         self._attach_native_listener()
-        runtime_data = getattr(runtime, "data", None)
-        # Forecast.Solar's coordinator exposes ``wh_period`` on its runtime; we
-        # keep that strict shape gate for it. Other providers do not share that
-        # internal, so their liveness rests on ``last_update_success`` and the
-        # observed listener callback below.
-        if domain == "forecast_solar":
-            wh_period = getattr(runtime_data, "wh_period", None)
-            if not isinstance(wh_period, Mapping):
-                return NativeRead(
-                    "unsupported_native_contract",
-                    self.binding,
-                    reason="runtime_wh_period_missing",
-                )
-        if getattr(runtime, "last_update_success", False) is not True:
-            return NativeRead(
-                "native_source_unavailable", self.binding, reason="last_update_not_successful"
-            )
-        # Forecast.Solar's pinned coordinator is a plain DataUpdateCoordinator;
-        # last_update_success_time is not part of its contract. A retained
-        # runtime payload is not admissible until a native listener callback has
-        # been observed by this adapter after setup.
-        native_updated_at = self._native_listener_observed_at_utc
-        if native_updated_at is None:
-            return NativeRead(
-                "native_source_unavailable", self.binding, reason="native_update_not_observed"
-            )
+
         now = datetime.now(UTC)
-        age = (now - native_updated_at).total_seconds()
-        if age < -300 or age > MAX_OBSERVATION_AGE.total_seconds():
-            return NativeRead(
-                "native_source_stale", self.binding, reason=f"native_update_age_seconds:{age:.1f}"
-            )
+        is_forecast_solar = domain == "forecast_solar"
+        if is_forecast_solar:
+            liveness = self._forecast_solar_liveness(runtime, now)
+        else:
+            liveness = self._provider_liveness(runtime, now)
+        if liveness.status != "ok":
+            return NativeRead(liveness.status, self.binding, reason=liveness.reason)
+        native_updated_at = liveness.native_updated_at
+        assert native_updated_at is not None
         try:
             payload = await helper(self.hass, self.binding.native_entry_id)
         except Exception as err:
-            _LOGGER.debug("Native Forecast.Solar helper failed: %s", err)
+            _LOGGER.debug("Native forecast helper failed: %s", err)
             return NativeRead(
                 "native_source_unavailable",
                 self.binding,
@@ -608,7 +651,13 @@ class ForecastSolarNativeAdapter:
         model = self._model_from_entry(native_entry)
         if model.status != "ok":
             return NativeRead(model.status, self.binding, model=model, reason=model.reason)
-        marker = (native_updated_at.isoformat(), profile.payload_sha256)
+        # Forecast.Solar dedupes on its observed listener time; other providers
+        # may have no observable update timestamp, so they dedupe on the payload
+        # digest alone (identical profile means the same observation).
+        if is_forecast_solar:
+            marker = (native_updated_at.isoformat(), profile.payload_sha256)
+        else:
+            marker = ("payload", profile.payload_sha256)
         if marker == self._last_marker and self._observation is not None:
             return NativeRead("ok", self.binding, model=model, observation=self._observation)
         self._sequence += 1

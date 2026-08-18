@@ -777,6 +777,116 @@ def test_native_adapter_generalizes_to_non_forecast_solar_provider() -> None:
     assert module.EnergyForecastProvider is module.ForecastSolarNativeAdapter
 
 
+class BareRuntime:
+    """A provider whose runtime exposes neither a listener nor coordinator health.
+
+    This models a real Solcast-style install where the config entry's
+    ``runtime_data`` is a wrapper object, not a DataUpdateCoordinator: there is
+    no ``async_add_listener`` and no ``last_update_success`` to observe.
+    """
+
+
+class BareSolcastEntry:
+    domain = "solcast_solar"
+    entry_id = "native-1"
+    data = {"api_key": "SECRET-should-never-leak"}
+    options = {"resource_id": "abc-123"}
+
+    def __init__(self) -> None:
+        self.runtime_data = BareRuntime()
+
+
+def test_native_adapter_admits_non_forecast_solar_without_listener() -> None:
+    """A non-Forecast.Solar provider is admitted purely on a valid helper payload.
+
+    It must not require Forecast.Solar's runtime shape, a listener callback, or
+    ``last_update_success``. Forecast.Solar's own gate is unchanged (covered by
+    the plain-coordinator tests above).
+    """
+
+    async def helper(hass, config_entry_id):
+        return {
+            "wh_hours": {
+                "2026-08-03T00:00:00+00:00": 0,
+                "2026-08-03T01:00:00+00:00": 100,
+                "2026-08-03T02:00:00+00:00": 200,
+            }
+        }
+
+    _install_fake_ha(helper)
+    sys.modules["homeassistant.components.energy.websocket_api"]._platforms["solcast_solar"] = (
+        helper
+    )
+    module = importlib.import_module("custom_components.solar_analytics.native_adapter")
+    native_entry = BareSolcastEntry()
+    manager = types.SimpleNamespace(
+        data={
+            "energy_sources": [
+                {
+                    "type": "solar",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
+                    "config_entry_solar_forecast": ["native-1"],
+                }
+            ]
+        }
+    )
+    hass = FakeHass(native_entry, manager)
+    adapter = module.ForecastSolarNativeAdapter(hass, FakeEntry())
+
+    async def run():
+        await adapter.async_initialize()
+        first = await adapter.async_capture()
+        # A second capture with an identical payload must dedupe on the digest.
+        second = await adapter.async_capture()
+        return first, second
+
+    first, second = asyncio.run(run())
+    assert first.status == "ok"
+    assert first.observation is not None
+    assert first.observation.profile.valid_periods[0].energy_wh == 100
+    assert second.status == "ok"
+    assert second.observation is not None
+    assert second.observation.observation_sequence == first.observation.observation_sequence
+
+
+def test_native_adapter_rejects_non_forecast_solar_explicit_coordinator_failure() -> None:
+    """When a non-FS provider does expose health, an explicit failure is honored."""
+
+    async def helper(hass, config_entry_id):
+        return {"wh_hours": {"2026-08-03T01:00:00+00:00": 1}}
+
+    _install_fake_ha(helper)
+    sys.modules["homeassistant.components.energy.websocket_api"]._platforms["solcast_solar"] = (
+        helper
+    )
+    module = importlib.import_module("custom_components.solar_analytics.native_adapter")
+    native_entry = FakeSolcastEntry()
+    native_entry.runtime_data.last_update_success = False
+    manager = types.SimpleNamespace(
+        data={
+            "energy_sources": [
+                {
+                    "type": "solar",
+                    "stat_energy_from": "sensor.pv_energy",
+                    "stat_rate": "sensor.pv_power",
+                    "config_entry_solar_forecast": ["native-1"],
+                }
+            ]
+        }
+    )
+    hass = FakeHass(native_entry, manager)
+    adapter = module.ForecastSolarNativeAdapter(hass, FakeEntry())
+
+    async def run():
+        await adapter.async_initialize()
+        return await adapter.async_capture()
+
+    result = asyncio.run(run())
+    assert result.status == "native_source_unavailable"
+    assert result.reason == "last_update_not_successful"
+
+
 def test_native_adapter_accepts_supported_minimum_and_rejects_older_core() -> None:
     """Version check is now a >= minimum, not an exact string match."""
 
