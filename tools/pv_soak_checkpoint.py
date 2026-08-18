@@ -17,11 +17,31 @@ import os
 import re
 import stat
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+# Forecast source vocabulary, kept byte-identical to the integration's
+# ``const.py`` (``FORECAST_SOURCE_ENERGY_ENTRY`` / ``FORECAST_SOURCE_ENTITY``)
+# without importing it, so this analyzer stays standalone and dependency-free.
+SOURCE_ENERGY_ENTRY = "energy_entry"
+SOURCE_FORECAST_ENTITY = "forecast_entity"
+_FORECAST_SOURCE_TYPES = frozenset({SOURCE_ENERGY_ENTRY, SOURCE_FORECAST_ENTITY})
+
+# The always-present Solar Analytics logger. An Energy-Dashboard soak must
+# additionally show the bound provider's logger (its integration domain); a
+# forecast-entity soak has no separate provider logger.
+BASE_LOG = "solar_analytics"
+
+# Installation-neutral soak floor. Solar Analytics produces its comparisons on
+# a daily cadence (a morning baseline snapshot, a day-ahead snapshot, and a
+# local-day rollup that only finalizes an hour after local midnight), so a soak
+# that does not span a full 24-hour day cannot have observed one finished day
+# of forecast-vs-actual evidence. A shorter or instantaneous window is BLOCKED.
+MIN_SOAK_HOURS = 24
+MIN_SOAK_DURATION = timedelta(hours=MIN_SOAK_HOURS)
 
 # The fixed status entities Solar Analytics always publishes. Any Solar
 # Analytics install exposes exactly these five; every soak envelope must
@@ -45,9 +65,9 @@ REQUIRED_TABLES = frozenset(
         "v2_runtime_state.last_actual_sample",
     }
 )
-REQUIRED_LOGS = frozenset({"solar_analytics", "forecast_solar"})
 _TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_DOMAIN_RE = re.compile(r"^[a-z0-9_]+$")
 
 
 class CheckpointValidationError(ValueError):
@@ -78,6 +98,38 @@ def _digest(value: Any, name: str) -> str:
     return value
 
 
+def _forecast_source(root: Mapping[str, Any]) -> tuple[str, str | None, frozenset[str]]:
+    """Return the declared soak source, provider domain, and required log set.
+
+    The bound source dictates which loggers a soak must show fresh: an Energy
+    Dashboard provider (Forecast.Solar, Solcast, ...) has its own integration
+    logger, so its soak must show ``solar_analytics`` *and* the provider domain;
+    a forecast entity has no separate provider logger, so ``solar_analytics``
+    alone is required. A Forecast.Solar-only allowlist can no longer silently
+    pass a Solcast or forecast-entity soak.
+    """
+
+    source_type = root.get("forecast_source_type")
+    if source_type not in _FORECAST_SOURCE_TYPES:
+        raise CheckpointValidationError(
+            "forecast_source_type must be one of: " + ", ".join(sorted(_FORECAST_SOURCE_TYPES))
+        )
+    provider_domain = root.get("provider_domain")
+    if source_type == SOURCE_ENERGY_ENTRY:
+        if not isinstance(provider_domain, str) or not _DOMAIN_RE.fullmatch(provider_domain):
+            raise CheckpointValidationError(
+                "provider_domain must be the bound Energy provider's integration domain"
+            )
+        if provider_domain == BASE_LOG:
+            raise CheckpointValidationError(
+                "provider_domain must be the forecast provider, not solar_analytics"
+            )
+        return source_type, provider_domain, frozenset({BASE_LOG, provider_domain})
+    if provider_domain is not None:
+        raise CheckpointValidationError("provider_domain must be absent for a forecast_entity soak")
+    return source_type, None, frozenset({BASE_LOG})
+
+
 def _canonical_bytes(payload: Mapping[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
@@ -105,6 +157,12 @@ def validate_collector_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     baseline_dt = datetime.fromisoformat(baseline[:-1] + "+00:00")
     if baseline_dt > collected_dt:
         raise CheckpointValidationError("baseline_utc must not be after collected_at_utc")
+    if collected_dt - baseline_dt < MIN_SOAK_DURATION:
+        raise CheckpointValidationError(
+            f"soak window (collected_at_utc - baseline_utc) must be at least {MIN_SOAK_HOURS} hours"
+        )
+
+    _, _, required_logs = _forecast_source(root)
 
     collection = _mapping(root.get("collection"), "collection")
     if collection.get("method") != "read_only_ssh":
@@ -127,11 +185,12 @@ def validate_collector_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     _digest(core_check.get("output_digest"), "ha.core_check.output_digest")
 
     logs = _mapping(ha.get("logs"), "ha.logs")
-    if set(logs) != REQUIRED_LOGS:
+    if set(logs) != required_logs:
         raise CheckpointValidationError(
-            "ha.logs must contain exactly the allowlisted fresh log streams"
+            "ha.logs must contain exactly the allowlisted fresh log streams "
+            "for the bound forecast source"
         )
-    for name in REQUIRED_LOGS:
+    for name in required_logs:
         log = _mapping(logs[name], f"ha.logs.{name}")
         if not isinstance(log.get("fresh"), bool):
             raise CheckpointValidationError(f"ha.logs.{name}.fresh must be boolean")
@@ -233,6 +292,10 @@ def analyze_snapshot(snapshot: Mapping[str, Any] | str | Path) -> dict[str, Any]
         if isinstance(payload, Mapping)
         else None,
         "baseline_utc": payload.get("baseline_utc") if isinstance(payload, Mapping) else None,
+        "forecast_source_type": payload.get("forecast_source_type")
+        if isinstance(payload, Mapping)
+        else None,
+        "provider_domain": payload.get("provider_domain") if isinstance(payload, Mapping) else None,
         "physical_calls": None,
         "mutations": None,
         "network_writes": None,
@@ -296,11 +359,18 @@ def _template() -> dict[str, Any]:
     example_power = "sensor.example_pv_power"
     example_energy = "sensor.example_pv_energy"
     entities = sorted(FIXED_STATUS_ENTITIES | {example_power, example_energy})
+    # Illustrate an Energy Dashboard (Forecast.Solar) soak; for a forecast
+    # entity, set ``forecast_source_type`` to ``forecast_entity``, drop
+    # ``provider_domain``, and keep ``solar_analytics`` as the only log stream.
+    example_domain = "forecast_solar"
+    template_logs = sorted({BASE_LOG, example_domain})
     return {
         "schema_version": SCHEMA_VERSION,
         "checkpoint_id": "replace-me",
         "collected_at_utc": "YYYY-MM-DDTHH:MM:SSZ",
         "baseline_utc": "YYYY-MM-DDTHH:MM:SSZ",
+        "forecast_source_type": SOURCE_ENERGY_ENTRY,
+        "provider_domain": example_domain,
         "collection": {
             "method": "read_only_ssh",
             "physical_calls": 0,
@@ -321,7 +391,7 @@ def _template() -> dict[str, Any]:
                     "mutation_mentions": 0,
                     "excerpt_digest": "sha256:" + "0" * 64,
                 }
-                for name in sorted(REQUIRED_LOGS)
+                for name in template_logs
             },
         },
         "entities": {
