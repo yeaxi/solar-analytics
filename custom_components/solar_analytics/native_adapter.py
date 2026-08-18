@@ -24,8 +24,6 @@ from .native import (
     normalize_native_wh_hours,
 )
 
-_SECRET_CONFIG_MARKERS = ("api_key", "apikey", "token", "password", "secret", "credential")
-
 _LOGGER = logging.getLogger(__name__)
 # Minimum supported Home Assistant Core version. The native adapter also
 # feature-detects the Forecast.Solar helper signature and the presence of
@@ -447,21 +445,25 @@ class ForecastSolarNativeAdapter:
 
     @staticmethod
     def _generic_model(native_entry: Any) -> NativeModel:
+        """Identity for a non-Forecast.Solar Energy provider entry.
+
+        The model identity is the bound source itself: its domain and config
+        entry id. Provider config values are deliberately never copied here.
+        A denylist over arbitrary third-party config is the wrong direction
+        (it leaks any credential key it does not recognize into published state,
+        diagnostics, and the lineage row), and copying the whole options bag
+        would reset the accuracy lineage every time an unrelated display or
+        debug knob is toggled. Domain + entry id is a stable identity: a
+        genuinely different bound source has a different entry id and starts its
+        own lineage, while a rotated token or toggled option does not.
+        """
+
         try:
             values: dict[str, Any] = {
                 "status": "ok",
                 "provider_domain": getattr(native_entry, "domain", None),
                 "provider_entry_id": getattr(native_entry, "entry_id", None),
             }
-            for source in (
-                dict(getattr(native_entry, "data", {}) or {}),
-                dict(getattr(native_entry, "options", {}) or {}),
-            ):
-                for key, value in source.items():
-                    if any(marker in str(key).lower() for marker in _SECRET_CONFIG_MARKERS):
-                        continue
-                    if value is None or isinstance(value, (str, int, float, bool)):
-                        values.setdefault(f"cfg_{key}", value)
             fingerprint = build_generic_model_fingerprint(values)
             if fingerprint is None:
                 return NativeModel(
