@@ -487,16 +487,11 @@ def test_v2_current_lineage_id_is_scoped_to_configured_source(tmp_path) -> None:
     # No-arg reuse is unchanged.
     assert store.current_lineage_id() == native_id
     # Same source reuses the lineage.
-    assert (
-        store.current_lineage_id(source_kind="native", source_id="entry-x") == native_id
-    )
+    assert store.current_lineage_id(source_kind="native", source_id="entry-x") == native_id
     # A different Energy entry does not inherit the lineage.
     assert store.current_lineage_id(source_kind="native", source_id="entry-y") is None
     # Switching to a forecast entity does not inherit the lineage either.
-    assert (
-        store.current_lineage_id(source_kind="forecast_entity", source_id="sensor.f")
-        is None
-    )
+    assert store.current_lineage_id(source_kind="forecast_entity", source_id="sensor.f") is None
 
     # Once the entity source produces its own lineage, it is reused for itself
     # and the old native source no longer matches.
@@ -515,8 +510,7 @@ def test_v2_current_lineage_id_is_scoped_to_configured_source(tmp_path) -> None:
     )
     assert entity_id != native_id
     assert (
-        store.current_lineage_id(source_kind="forecast_entity", source_id="sensor.f")
-        == entity_id
+        store.current_lineage_id(source_kind="forecast_entity", source_id="sensor.f") == entity_id
     )
     assert store.current_lineage_id(source_kind="native", source_id="entry-x") is None
     store.close()
