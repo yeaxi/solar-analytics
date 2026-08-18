@@ -6,19 +6,27 @@ All notable changes to Solar Analytics are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-18
+
 ### Added
 - Generalized the forecast source. Solar Analytics is no longer Forecast.Solar
-  only. The Energy Dashboard adapter now binds to any integration that provides
-  the Home Assistant solar-forecast platform (Forecast.Solar, Solcast, ...),
-  resolving the helper from the bound config entry's own domain. A new
-  `forecast_entity` source type reads a timestamped Wh-per-period profile
-  (`wh_hours`, `wh_period`, or `watt_hours_period`) from a chosen forecast
-  entity. Both remain read-only and fail closed. An entity that exposes no
-  timestamped profile is rejected with the new
-  `unsupported_forecast_entity_contract` status; no energy is fabricated from a
-  scalar. Config-entry version 6 adds `forecast_source_type` and
-  `forecast_entity_id`. Existing Forecast.Solar installs keep their exact model
-  fingerprint and lineage, so the 14-day accuracy warm-up is not reset.
+  only. The Energy Dashboard adapter binds to any integration that provides the
+  Home Assistant solar-forecast platform (Forecast.Solar, Solcast, ...),
+  resolving the helper through the Energy platform registry rather than a
+  core-only import. A new `forecast_entity` source type reads a timestamped
+  Wh-per-period profile (`wh_hours`, `wh_period`, or `watt_hours_period`) from a
+  chosen forecast entity, rejects restored states and non-Wh units, and admits
+  from profile horizon coverage plus a read-only state-change listener. Both
+  remain read-only and fail closed. An entity that exposes no timestamped
+  profile is rejected with the new `unsupported_forecast_entity_contract`
+  status; no energy is fabricated from a scalar. Config-entry version 6 adds
+  `forecast_source_type` and `forecast_entity_id`. Forecast.Solar keeps its
+  exact model fingerprint, listener/`wh_period` gates, and lineage key join;
+  non-Forecast.Solar Energy providers admit on a valid helper payload.
+- Soak checkpoint schema version 3. Collector envelopes must declare
+  `forecast_source_type` (`energy_entry` with `provider_domain`, or
+  `forecast_entity`); required fresh logs follow that source, and the soak
+  window must be at least 24 hours.
 - Imported historical actual production. On setup Solar Analytics reads the
   configured actual PV **energy** sensor's long-term Recorder statistics
   (hourly, never purged) through `statistics_during_period` on the Recorder's
@@ -50,10 +58,21 @@ All notable changes to Solar Analytics are documented here. The format follows
 
 ### Changed
 - Removed the always-`None` Victron VRM forecast sensor and its payload keys.
-  User-facing labels are now provider-neutral ("Forecast power", "Forecast
-  source status"); the underlying entity ids, unique ids, status enum values,
-  and payload keys are unchanged, so existing dashboards and automations keep
-  working.
+  User-facing labels, repair issues, and device model copy are now
+  provider-neutral ("Forecast power", "Forecast source status"); the underlying
+  entity ids, unique ids, status enum values, and payload keys are unchanged, so
+  existing dashboards and automations keep working.
+- Generic Energy provider model identity is digest-only (domain + entry id);
+  foreign config scalars no longer appear in state, diagnostics, or SQLite.
+  Lineage reuse is scoped to the configured source, so switching forecast
+  source cannot keep writing accuracy onto the previous lineage. Payload
+  provenance (`source_map.forecast`, `native_update_time_source`) now names the
+  path that actually admitted the profile. `forecast_solar` moved from
+  `dependencies` to `after_dependencies`.
+- Shipping version `2.3.0` participates in the lineage `contract_key` via
+  `NATIVE_ADAPTER_VERSION`. Existing installs start a new accuracy lineage on
+  upgrade; the Forecast.Solar fingerprint and gate logic themselves are
+  unchanged.
 
   Evidence status for the import is **PARTIAL**. Home Assistant is not
   installed in CI, so the Recorder call is exercised against a recording stub.

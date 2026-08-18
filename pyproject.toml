@@ -1,6 +1,6 @@
 [project]
 name = "solar-analytics"
-version = "2.2.1"
+version = "2.3.0"
 description = "Reusable, read-only Solar Analytics custom integration for Home Assistant"
 requires-python = ">=3.14"
 dependencies = []
