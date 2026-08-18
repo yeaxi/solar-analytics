@@ -32,7 +32,6 @@ from .native import (
     normalize_native_wh_hours,
 )
 from .native_adapter import (
-    MAX_OBSERVATION_AGE,
     NativeBinding,
     NativeModel,
     NativeObservation,
@@ -129,6 +128,14 @@ class EntityForecastProvider:
                 "native_source_unavailable", self.binding, reason="forecast_entity_unavailable"
             )
         attributes = dict(getattr(state, "attributes", {}) or {})
+        # A restored state (recorder-rehydrated after a Home Assistant restart)
+        # is not live evidence: its last_updated is refreshed to boot time while
+        # the profile attribute may be hours old. The actual-PV path rejects
+        # restored states for the same reason; the forecast path must too.
+        if attributes.get("restored") is True:
+            return NativeRead(
+                "native_source_unavailable", self.binding, reason="forecast_entity_restored"
+            )
         payload = extract_forecast_entity_wh_hours(attributes)
         if payload is None:
             return NativeRead(
@@ -154,23 +161,30 @@ class EntityForecastProvider:
                 self.binding,
                 reason=f"profile_validation_failed:invalid_count={profile.invalid_count}",
             )
-        updated_at = self._entity_updated_at(state)
-        if updated_at is None:
-            return NativeRead(
-                "native_source_unavailable", self.binding, reason="forecast_entity_no_timestamp"
-            )
         now = datetime.now(UTC)
-        age = (now - updated_at).total_seconds()
-        if age < -300 or age > MAX_OBSERVATION_AGE.total_seconds():
+        # Freshness is a property of the profile horizon, not the entity's
+        # last_updated. A forecast that still covers a future instant is live
+        # even if the entity has not changed for hours (a day-ahead profile is
+        # published once and then quiet); conversely a scalar-churning entity
+        # does not become fresh just because its state ticked. Admit only while
+        # the profile still reaches beyond now.
+        horizon_end = max((period.end_utc for period in profile.valid_periods), default=None)
+        if horizon_end is None or horizon_end <= now:
+            ended = (now - horizon_end).total_seconds() if horizon_end is not None else -1.0
             return NativeRead(
                 "native_source_stale",
                 self.binding,
-                reason=f"forecast_entity_age_seconds:{age:.1f}",
+                reason=f"forecast_horizon_ended_seconds:{ended:.1f}",
             )
+        # The entity's last_updated is retained only as the observation's update
+        # timestamp (best available); it is no longer an admission gate.
+        updated_at = self._entity_updated_at(state) or now
         model = self._model(attributes)
         if model.status != "ok":
             return NativeRead(model.status, self.binding, model=model, reason=model.reason)
-        marker = (updated_at.isoformat(), profile.payload_sha256)
+        # Dedupe on the payload digest so scalar churn (a fast-moving state with
+        # a slow-moving profile) does not mint a new observation each poll.
+        marker = ("payload", profile.payload_sha256)
         if marker == self._last_marker and self._observation is not None:
             return NativeRead("ok", self.binding, model=model, observation=self._observation)
         self._sequence += 1

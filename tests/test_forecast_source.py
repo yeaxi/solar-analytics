@@ -91,6 +91,22 @@ def _provider(states, **overrides):
     return module.EntityForecastProvider(FakeHass(states), FakeEntry(_entry_data(**overrides)))
 
 
+def _future_wh_hours(now: datetime) -> dict[str, int]:
+    """A profile whose horizon still reaches beyond ``now``.
+
+    The first entry is a boundary; the two following period-end timestamps are
+    in the future, so the profile is live regardless of the entity's
+    last_updated.
+    """
+
+    base = now.replace(minute=0, second=0, microsecond=0)
+    return {
+        base.isoformat(): 0,
+        (base + timedelta(hours=1)).isoformat(): 100,
+        (base + timedelta(hours=2)).isoformat(): 200,
+    }
+
+
 def test_extractor_accepts_known_wh_maps_and_rejects_scalars() -> None:
     assert extract_forecast_entity_wh_hours({"wh_hours": {"2026-08-03T01:00:00+00:00": 100}}) == {
         "wh_hours": {"2026-08-03T01:00:00+00:00": 100}
@@ -107,14 +123,7 @@ def test_entity_provider_captures_timestamped_profile() -> None:
     now = datetime.now(UTC)
     state = FakeState(
         "on",
-        {
-            "wh_hours": {
-                "2026-08-03T00:00:00+00:00": 0,
-                "2026-08-03T01:00:00+00:00": 100,
-                "2026-08-03T02:00:00+00:00": 200,
-            },
-            "unit_of_measurement": "Wh",
-        },
+        {"wh_hours": _future_wh_hours(now), "unit_of_measurement": "Wh"},
         now,
     )
     provider = _provider({"sensor.my_forecast": state})
@@ -166,22 +175,47 @@ def test_entity_provider_accepts_unspecified_unit_as_wh() -> None:
     """A map with no unit is accepted (treated as Wh); the unit is unspecified."""
 
     now = datetime.now(UTC)
-    state = FakeState(
-        "on",
-        {
-            "wh_hours": {
-                "2026-08-03T00:00:00+00:00": 0,
-                "2026-08-03T01:00:00+00:00": 100,
-                "2026-08-03T02:00:00+00:00": 200,
-            }
-        },
-        now,
-    )
+    state = FakeState("on", {"wh_hours": _future_wh_hours(now)}, now)
     provider = _provider({"sensor.my_forecast": state})
     read = asyncio.run(provider.async_capture())
     assert read.status == "ok"
     assert read.observation is not None
     assert read.observation.profile.valid_periods[0].energy_wh == 100
+
+
+def test_entity_provider_rejects_restored_state() -> None:
+    """A recorder-restored state is not live evidence and must be rejected."""
+
+    now = datetime.now(UTC)
+    state = FakeState(
+        "on",
+        {"wh_hours": _future_wh_hours(now), "unit_of_measurement": "Wh", "restored": True},
+        now,
+    )
+    provider = _provider({"sensor.my_forecast": state})
+    read = asyncio.run(provider.async_capture())
+    assert read.status == "native_source_unavailable"
+    assert read.reason == "forecast_entity_restored"
+
+
+def test_entity_provider_admits_quiet_entity_with_future_horizon() -> None:
+    """A day-ahead profile is live while it covers the future, even if quiet.
+
+    The entity has not changed for 12 hours, which the old 2h last_updated gate
+    would have marked stale, but the profile still reaches beyond now.
+    """
+
+    now = datetime.now(UTC)
+    quiet_since = now - timedelta(hours=12)
+    state = FakeState(
+        "on",
+        {"wh_hours": _future_wh_hours(now), "unit_of_measurement": "Wh"},
+        quiet_since,
+    )
+    provider = _provider({"sensor.my_forecast": state})
+    read = asyncio.run(provider.async_capture())
+    assert read.status == "ok"
+    assert read.observation is not None
 
 
 def test_entity_provider_marks_stale_profile() -> None:
