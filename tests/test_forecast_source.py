@@ -30,7 +30,7 @@ def _install_ha_stub() -> None:
     helpers = types.ModuleType("homeassistant.helpers")
     helpers.__path__ = []
     event = types.ModuleType("homeassistant.helpers.event")
-    event.async_track_state_change_event = lambda hass, entity_ids, action: (lambda: None)
+    event.async_track_state_change_event = lambda hass, entity_ids, action: lambda: None
     sys.modules.update(
         {
             "homeassistant": ha,
