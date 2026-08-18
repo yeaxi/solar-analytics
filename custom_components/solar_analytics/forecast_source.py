@@ -42,6 +42,11 @@ from .native_adapter import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# The map values are consumed as Wh per period. A missing unit is accepted
+# (unspecified, treated as Wh); any explicit non-Wh unit is rejected fail-closed
+# rather than converted, since the profile keys carry no unit of their own.
+_ACCEPTED_WH_UNITS = frozenset({"Wh"})
+
 
 class EntityForecastProvider:
     """Observe a forecast entity and normalize its timestamped profile."""
@@ -130,6 +135,17 @@ class EntityForecastProvider:
                 "unsupported_forecast_entity_contract",
                 self.binding,
                 reason="no_timestamped_profile",
+            )
+        # The accuracy pipeline treats every map value as Wh for the period.
+        # A kWh/kW/W entity would silently corrupt accuracy (a kWh map is 1000x
+        # too small), so fail closed unless the unit is Wh or unspecified. This
+        # never converts: without a verified unit we do not guess.
+        unit = attributes.get("unit_of_measurement")
+        if unit is not None and unit not in _ACCEPTED_WH_UNITS:
+            return NativeRead(
+                "unsupported_forecast_entity_contract",
+                self.binding,
+                reason=f"non_wh_unit:{unit}",
             )
         profile = normalize_native_wh_hours(payload)
         if profile.status != "complete" or profile.payload_sha256 is None:
