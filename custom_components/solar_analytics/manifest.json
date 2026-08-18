@@ -1,16 +1,25 @@
 {
   "domain": "solar_analytics",
   "name": "Solar Analytics",
-  "after_dependencies": ["recorder", "forecast_solar"],
-  "codeowners": ["@yeaxi"],
+  "after_dependencies": [
+    "recorder",
+    "forecast_solar"
+  ],
+  "codeowners": [
+    "@yeaxi"
+  ],
   "config_flow": true,
-  "dependencies": ["energy"],
+  "dependencies": [
+    "energy"
+  ],
   "documentation": "https://yeaxi.github.io/solar-analytics/",
   "integration_type": "service",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/yeaxi/solar-analytics/issues",
-  "loggers": ["solar_analytics"],
+  "loggers": [
+    "solar_analytics"
+  ],
   "quality_scale": "platinum",
   "requirements": [],
-  "version": "2.2.1"
+  "version": "2.3.0"
 }
