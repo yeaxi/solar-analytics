@@ -21,8 +21,7 @@ def _install_fake_ha(helper, *, root_version: bool = True):
     components = types.ModuleType("homeassistant.components")
     energy_pkg = types.ModuleType("homeassistant.components.energy")
     energy_data = types.ModuleType("homeassistant.components.energy.data")
-    forecast_pkg = types.ModuleType("homeassistant.components.forecast_solar")
-    forecast_energy = types.ModuleType("homeassistant.components.forecast_solar.energy")
+    energy_ws = types.ModuleType("homeassistant.components.energy.websocket_api")
     config_entries.ConfigEntry = object
     core.HomeAssistant = object
 
@@ -30,7 +29,16 @@ def _install_fake_ha(helper, *, root_version: bool = True):
         return hass.manager
 
     energy_data.async_get_manager = async_get_manager
-    forecast_energy.async_get_solar_forecast = helper
+    # The Energy Dashboard's own registry, resolved through HA's integration
+    # platform loader. Forecast.Solar and any custom component appear here by
+    # domain; the adapter must not import ``homeassistant.components.<domain>``.
+    platforms = {"forecast_solar": helper}
+
+    async def async_get_energy_platforms(hass):
+        return dict(platforms)
+
+    energy_ws.async_get_energy_platforms = async_get_energy_platforms
+    energy_ws._platforms = platforms
     sys.modules.update(
         {
             "homeassistant": homeassistant,
@@ -40,8 +48,7 @@ def _install_fake_ha(helper, *, root_version: bool = True):
             "homeassistant.components": components,
             "homeassistant.components.energy": energy_pkg,
             "homeassistant.components.energy.data": energy_data,
-            "homeassistant.components.forecast_solar": forecast_pkg,
-            "homeassistant.components.forecast_solar.energy": forecast_energy,
+            "homeassistant.components.energy.websocket_api": energy_ws,
         }
     )
     parent = types.ModuleType("custom_components")
@@ -591,7 +598,11 @@ def test_native_adapter_imports_helper_off_event_loop() -> None:
     assert all(name == "import_module" for name, _args in executor_calls)
     imported_modules = [args[0] for _name, args in executor_calls]
     assert imported_modules.count("homeassistant.components.energy.data") == 3
-    assert imported_modules.count("homeassistant.components.forecast_solar.energy") == 1
+    assert imported_modules.count("homeassistant.components.energy.websocket_api") == 1
+    # The provider domain is never imported directly; it comes from the registry.
+    assert not any(
+        name.startswith("homeassistant.components.forecast_solar") for name in imported_modules
+    )
 
 
 def test_native_adapter_prefers_user_configured_entities_over_energy_dashboard() -> None:
@@ -713,11 +724,11 @@ def test_native_adapter_generalizes_to_non_forecast_solar_provider() -> None:
         }
 
     _install_fake_ha(helper)
-    solcast_pkg = types.ModuleType("homeassistant.components.solcast_solar")
-    solcast_energy = types.ModuleType("homeassistant.components.solcast_solar.energy")
-    solcast_energy.async_get_solar_forecast = helper
-    sys.modules["homeassistant.components.solcast_solar"] = solcast_pkg
-    sys.modules["homeassistant.components.solcast_solar.energy"] = solcast_energy
+    # Solcast is a custom component: it is reachable only through the Energy
+    # Dashboard platform registry, never as ``homeassistant.components.*``.
+    sys.modules["homeassistant.components.energy.websocket_api"]._platforms["solcast_solar"] = (
+        helper
+    )
     module = importlib.import_module("custom_components.solar_analytics.native_adapter")
     native_entry = FakeSolcastEntry()
     manager = types.SimpleNamespace(

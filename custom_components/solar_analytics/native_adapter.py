@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import inspect
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -388,12 +387,13 @@ class ForecastSolarNativeAdapter:
     async def _async_get_helper(self, domain: str) -> Any | None:
         """Return the provider's Energy solar-forecast helper, or ``None``.
 
-        Home Assistant integrations that feed the Energy Dashboard solar
-        forecast expose ``async_get_solar_forecast`` from their ``energy``
-        platform. We resolve it from the bound config entry's own domain
-        (``forecast_solar``, ``solcast_solar``, ...) rather than hardcoding one
-        provider. Feature detection accepts any callable whose first two
-        positional parameters can accept ``(hass, config_entry_id)``.
+        Resolve the helper the same way the Energy Dashboard itself does, via
+        ``energy.websocket_api.async_get_energy_platforms``. That registry is
+        built through Home Assistant's integration-platform loader, so it covers
+        both core integrations (``forecast_solar``) and custom components
+        (``solcast_solar`` and any future HACS provider). A domain-templated
+        ``homeassistant.components.<domain>.energy`` import would only ever see
+        core integrations and silently exclude every custom-component provider.
         """
 
         if not self._core_version_supported():
@@ -403,29 +403,20 @@ class ForecastSolarNativeAdapter:
         if self._helper is not None and self._helper_domain == domain:
             return self._helper
         try:
-            module = await self.hass.async_add_executor_job(
+            websocket_api = await self.hass.async_add_executor_job(
                 importlib.import_module,
-                f"homeassistant.components.{domain}.energy",
+                "homeassistant.components.energy.websocket_api",
             )
-            helper = module.async_get_solar_forecast
+            get_platforms = websocket_api.async_get_energy_platforms
         except ImportError, AttributeError:
             return None
-        if not callable(helper):
-            return None
         try:
-            signature = inspect.signature(helper)
-        except TypeError, ValueError:
+            platforms = await get_platforms(self.hass)
+        except Exception as err:  # pragma: no cover - platform discovery boundary
+            _LOGGER.debug("Energy platform discovery failed: %s", err)
             return None
-        positional = [
-            parameter
-            for parameter in signature.parameters.values()
-            if parameter.kind
-            in {
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            }
-        ]
-        if len(positional) < 2:
+        helper = platforms.get(domain) if isinstance(platforms, Mapping) else None
+        if not callable(helper):
             return None
         self._helper = helper
         self._helper_domain = domain
